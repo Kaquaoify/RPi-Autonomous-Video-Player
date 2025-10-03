@@ -14,13 +14,23 @@ from utils import generate_thumbnails, refresh_videos_list
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
 # ==============================
-# Configurables (change per RPi)
+# Config
 # ==============================
-USER_HOME = os.path.expanduser("~")                   # home de l'utilisateur courant
+USER_HOME = os.path.expanduser("~")
 VIDEO_DIR = os.path.join(USER_HOME, "Videos", "RPi-Autonomous-Video-Player")
 THUMB_DIR = os.path.join(VIDEO_DIR, "thumbnails")
-VLC_AUDIO_VOLUME_STEP = 10                            # incrément volume
-VLC_START_AT = 5                                      # seconde utilisée pour thumbnail capture
+VLC_AUDIO_VOLUME_STEP = 10
+VLC_START_AT = 5
+
+# Options VLC utiles sur RPi (tu peux en ajouter/retirer si besoin)
+VLC_OPTS = [
+    "--no-video-title-show",
+    "--fullscreen",
+    # Exemple: forcer l'audio ALSA par défaut (à activer si besoin)
+    # "--aout=alsa",
+    # Exemple: vout kms (si nécessaire selon ta stack graphique)
+    # "--vout=kmssink",
+]
 
 # ==============================
 # Global state
@@ -29,14 +39,12 @@ videos_lock = threading.Lock()
 videos = refresh_videos_list(VIDEO_DIR)
 video_index = 0
 
-# Un seul thread de génération de miniatures
 _thumb_thread_started = False
 _thumb_thread_lock = threading.Lock()
 
 # VLC player (single instance)
-_instance = vlc.Instance()
-_player = vlc.MediaPlayer()
-# Ensure volume starts at 80 if possible
+_instance = vlc.Instance(*VLC_OPTS)
+_player = _instance.media_player_new()  # ✅ important: on créé via l'instance
 try:
     _player.audio_set_volume(80)
 except Exception:
@@ -49,9 +57,7 @@ def set_media_by_index(idx: int) -> bool:
     """Charge la vidéo d'index idx dans le MediaPlayer (safe)."""
     global _player, videos, VIDEO_DIR
     with videos_lock:
-        if not videos:
-            return False
-        if idx < 0 or idx >= len(videos):
+        if not videos or idx < 0 or idx >= len(videos):
             return False
         name = videos[idx]
     path = os.path.join(VIDEO_DIR, name)
@@ -72,16 +78,11 @@ def ensure_thumbnails_background():
         if _thumb_thread_started:
             return
         _thumb_thread_started = True
-
-    t = threading.Thread(
-        target=generate_thumbnails,
-        args=(VIDEO_DIR, THUMB_DIR, VLC_START_AT),
-        daemon=True,
-    )
-    t.start()
+    threading.Thread(
+        target=generate_thumbnails, args=(VIDEO_DIR, THUMB_DIR, VLC_START_AT), daemon=True
+    ).start()
 
 def get_vlc_state_str():
-    """Retourne l'état VLC en chaîne lisible."""
     try:
         st = _player.get_state()
     except Exception:
@@ -100,11 +101,16 @@ def get_vlc_state_str():
 
 def get_current_video_name():
     with videos_lock:
-        if not videos:
-            return None
-        if video_index < 0 or video_index >= len(videos):
+        if not videos or not (0 <= video_index < len(videos)):
             return None
         return videos[video_index]
+
+def ensure_media_loaded():
+    """Si aucun média n'est chargé, charge la vidéo courante (si dispo)."""
+    if _player.get_media() is None:
+        with videos_lock:
+            if videos:
+                set_media_by_index(max(0, min(video_index, len(videos) - 1)))
 
 # ==============================
 # Routes
@@ -123,24 +129,23 @@ def settings_page():
 
 @app.route("/favicon.ico")
 def favicon():
-    # évite 404/bruit dans les logs quand le navigateur demande un favicon
     return ("", 204)
 
 @app.route("/thumbnails/<filename>")
 def thumbnails(filename):
-    # Serve thumbnail file if exists; else return 404
     if not os.path.isdir(THUMB_DIR):
         return ("", 404)
     return send_from_directory(THUMB_DIR, filename)
 
 @app.route("/control/<action>", methods=["POST"])
 def control(action):
-    global video_index, videos, _player
+    global video_index
     action = action.lower()
     with videos_lock:
         count = len(videos)
 
     if action == "play":
+        ensure_media_loaded()        # ✅ charge si rien n'est prêt
         _player.play()
     elif action == "pause":
         _player.pause()
@@ -149,6 +154,7 @@ def control(action):
             if count == 0:
                 return jsonify(status="error", message="No videos"), 400
             video_index = (video_index + 1) % count
+        _player.stop()               # ✅ plus fiable avant changement
         if set_media_by_index(video_index):
             _player.play()
     elif action == "prev":
@@ -156,18 +162,19 @@ def control(action):
             if count == 0:
                 return jsonify(status="error", message="No videos"), 400
             video_index = (video_index - 1) % count
+        _player.stop()
         if set_media_by_index(video_index):
             _player.play()
     elif action == "volup":
         try:
-            vol = _player.audio_get_volume()
-            _player.audio_set_volume(min(int(vol) + VLC_AUDIO_VOLUME_STEP, 100))
+            vol = int(_player.audio_get_volume() or 0)
+            _player.audio_set_volume(min(vol + VLC_AUDIO_VOLUME_STEP, 100))
         except Exception:
             pass
     elif action == "voldown":
         try:
-            vol = _player.audio_get_volume()
-            _player.audio_set_volume(max(int(vol) - VLC_AUDIO_VOLUME_STEP, 0))
+            vol = int(_player.audio_get_volume() or 0)
+            _player.audio_set_volume(max(vol - VLC_AUDIO_VOLUME_STEP, 0))
         except Exception:
             pass
     else:
@@ -192,6 +199,7 @@ def play_video():
             return jsonify(status="error", message="Video not found"), 404
         video_index = videos.index(video_name)
 
+    _player.stop()  # ✅ reset propre
     if not set_media_by_index(video_index):
         return jsonify(status="error", message="Failed to set media"), 500
 
@@ -199,7 +207,6 @@ def play_video():
     app.logger.info("Now playing index=%d name=%s", video_index, video_name)
     return jsonify(status="playing", video=video_name)
 
-# simple status endpoint
 @app.route("/status")
 def status():
     try:
@@ -220,7 +227,14 @@ def status():
 # Main
 # ==============================
 if __name__ == "__main__":
-    # ensure directories exist
     os.makedirs(VIDEO_DIR, exist_ok=True)
     os.makedirs(THUMB_DIR, exist_ok=True)
+
+    # Précharge une vidéo par défaut pour que "Play" fonctionne direct
+    safe_refresh_videos()
+    with videos_lock:
+        if videos:
+            video_index = 0
+            set_media_by_index(video_index)
+
     app.run(host="0.0.0.0", port=5000)
