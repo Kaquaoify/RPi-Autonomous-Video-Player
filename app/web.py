@@ -454,33 +454,62 @@ def api_rclone_settings():
 
 @app.route("/api/rclone/config/create", methods=["POST"])
 def api_rclone_config_create():
-    """Création non-interactive d'un remote Drive via token JSON collé (rclone authorize)."""
+    """Création/MAJ non-interactive d'un remote Drive via token JSON (rclone authorize "drive")."""
     if not which_rclone():
         return jsonify(error="rclone non installé"), 400
+
+    import json
     data = request.get_json() or {}
-    rn = (data.get("remote_name") or "gdrive").strip()
+    rn = (data.get("remote_name") or get_setting("remote_name", "gdrive")).strip()
     scope = (data.get("drive_scope") or "drive").strip()
     client_id = (data.get("client_id") or "").strip()
     client_secret = (data.get("client_secret") or "").strip()
-    token = (data.get("token_json") or "").strip()
-    if not token:
-        return jsonify(error="Token JSON manquant (utilisez rclone authorize \"drive\")"), 400
+    token_raw = (data.get("token_json") or "").strip()
+    if not token_raw:
+        return jsonify(error='Token JSON manquant (utilisez rclone authorize "drive")'), 400
 
-    # Prépare les arguments
-    args = ["config", "create", rn, "drive", f"scope={scope}", f"token={token}"]
+    # Valider + minifier le JSON du token (évite les soucis d’espaces/retours à la ligne)
+    try:
+        token_min = json.dumps(json.loads(token_raw), separators=(",", ":"))
+    except Exception as e:
+        return jsonify(error=f"Token JSON invalide: {e}"), 400
+
+    rc = which_rclone()
+
+    # Le remote existe déjà ?
+    code_lr, out_lr = run_cmd([rc, "listremotes"], timeout=15, env=rclone_base_env())
+    existing = [x.strip().rstrip(":") for x in (out_lr or "").splitlines() if x.strip()]
+    exists = rn in existing
+
+    # Construire la commande (create vs update) en mode non-interactif
+    base = [rc, "config", "update" if exists else "create", "--non-interactive", "--auto-confirm", rn]
+    if not exists:
+        base.append("drive")  # type uniquement pour create
+
+    kv = [f"scope={scope}", f"token={token_min}"]
     if client_id:
-        args.append(f"client_id={client_id}")
+        kv.append(f"client_id={client_id}")
     if client_secret:
-        args.append(f"client_secret={client_secret}")
+        kv.append(f"client_secret={client_secret}")
 
-    code, out = run_cmd([which_rclone()] + args, timeout=30, env=rclone_base_env())
+    code, out = run_cmd(base + kv, timeout=180, env=rclone_base_env())
     if code != 0:
+        # Fallback: si "create" échoue car déjà présent, tenter "update"
+        msg = (out or "").lower()
+        if not exists and ("exist" in msg or "already" in msg):
+            cmd2 = [rc, "config", "update", "--non-interactive", "--auto-confirm", rn] + kv
+            code2, out2 = run_cmd(cmd2, timeout=120, env=rclone_base_env())
+            if code2 == 0:
+                if not get_setting("remote_name"):
+                    set_settings(remote_name=rn)
+                return jsonify(message=f"Remote '{rn}' mis à jour.", output=out2, code=code2)
         return jsonify(error="Échec création remote", output=out, code=code), 400
 
-    # Sauvegarde réglages si pas déjà faits
     if not get_setting("remote_name"):
         set_settings(remote_name=rn)
-    return jsonify(message=f"Remote '{rn}' créé/mis à jour.", output=out, code=code)
+
+    return jsonify(message=f"Remote '{rn}' {'mis à jour' if exists else 'créé'}.", output=out, code=code)
+
 
 @app.route("/api/rclone/config/test", methods=["POST"])
 def api_rclone_config_test():
