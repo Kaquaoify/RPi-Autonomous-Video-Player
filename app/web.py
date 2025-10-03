@@ -22,15 +22,6 @@ THUMB_DIR = os.path.join(VIDEO_DIR, "thumbnails")
 VLC_AUDIO_VOLUME_STEP = 10
 VLC_START_AT = 5
 
-# Options VLC utiles sur RPi
-VLC_OPTS = [
-    "--no-video-title-show",
-    "--fullscreen",
-    "--aout=alsa",                    # ✅ forcer ALSA (évite PulseAudio)
-    "--alsa-audio-device=default",    # ✅ laisse ALSA choisir le périphérique par défaut
-     "--vout=kmssink",               # 👉 décommente si tu n’as PAS d'environnement graphique
-]
-
 # ==============================
 # Global state
 # ==============================
@@ -41,9 +32,36 @@ video_index = 0
 _thumb_thread_started = False
 _thumb_thread_lock = threading.Lock()
 
-# VLC player (single instance)
-_instance = vlc.Instance(*VLC_OPTS)
-_player = _instance.media_player_new()  # ✅ important: on créé via l'instance
+# ==============================
+# VLC instance (opts dynamiques)
+# ==============================
+def build_vlc_instance():
+    """
+    Construit une instance VLC adaptée:
+    - Audio: ALSA (évite PulseAudio)
+    - Vidéo: si pas de DISPLAY/WAYLAND -> vout headless (kmsdrm), fallback fb
+    """
+    base_opts = [
+        "--no-video-title-show",
+        "--fullscreen",
+        "--aout=alsa",
+        "--alsa-audio-device=default",
+    ]
+
+    headless = not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    if headless:
+        # Sur Raspberry Pi OS récent (KMS): kmsdrm
+        try:
+            return vlc.Instance(*(base_opts + ["--vout=kmsdrm"]))
+        except Exception:
+            # Fallback sur framebuffer si kmsdrm indisponible
+            return vlc.Instance(*(base_opts + ["--vout=fb"]))
+    else:
+        # En session graphique (X/Wayland), laisse VLC choisir gl/gles2/xcb
+        return vlc.Instance(*base_opts)
+
+_instance = build_vlc_instance()
+_player = _instance.media_player_new()
 try:
     _player.audio_set_volume(80)
 except Exception:
@@ -144,7 +162,7 @@ def control(action):
         count = len(videos)
 
     if action == "play":
-        ensure_media_loaded()        # ✅ charge si rien n'est prêt
+        ensure_media_loaded()
         _player.play()
     elif action == "pause":
         _player.pause()
@@ -153,7 +171,7 @@ def control(action):
             if count == 0:
                 return jsonify(status="error", message="No videos"), 400
             video_index = (video_index + 1) % count
-        _player.stop()               # ✅ plus fiable avant changement
+        _player.stop()
         if set_media_by_index(video_index):
             _player.play()
     elif action == "prev":
@@ -198,7 +216,7 @@ def play_video():
             return jsonify(status="error", message="Video not found"), 404
         video_index = videos.index(video_name)
 
-    _player.stop()  # ✅ reset propre
+    _player.stop()
     if not set_media_by_index(video_index):
         return jsonify(status="error", message="Failed to set media"), 500
 
