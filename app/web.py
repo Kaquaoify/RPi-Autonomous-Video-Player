@@ -22,14 +22,13 @@ THUMB_DIR = os.path.join(VIDEO_DIR, "thumbnails")
 VLC_AUDIO_VOLUME_STEP = 10
 VLC_START_AT = 5
 
-# Options VLC utiles sur RPi (tu peux en ajouter/retirer si besoin)
+# Options VLC utiles sur RPi
 VLC_OPTS = [
     "--no-video-title-show",
     "--fullscreen",
-    # Exemple: forcer l'audio ALSA par défaut (à activer si besoin)
-    # "--aout=alsa",
-    # Exemple: vout kms (si nécessaire selon ta stack graphique)
-    # "--vout=kmssink",
+    "--aout=alsa",                    # ✅ forcer ALSA (évite PulseAudio)
+    "--alsa-audio-device=default",    # ✅ laisse ALSA choisir le périphérique par défaut
+     "--vout=kmssink",               # 👉 décommente si tu n’as PAS d'environnement graphique
 ]
 
 # ==============================
