@@ -277,26 +277,54 @@ def play_video():
 
 @app.route("/status")
 def status():
+    payload = {
+        "running": True,
+        "videos": None,
+        "volume": None,
+        "state": None,
+        "current": None,
+        "vlc_ready": (_player is not None),
+        "vlc_error": _last_vlc_error,
+    }
+
+    # Nombre de vidéos
     try:
-        vol = _player.audio_get_volume() if _player is not None else None
-    except Exception:
-        vol = None
-    with videos_lock:
-        count = len(videos)
-    return jsonify(
-        running=True,
-        videos=count,
-        volume=vol,
-        state=get_vlc_state_str(),
-        current=get_current_video_name(),
-        vlc_ready=(_player is not None),
-        vlc_error=_last_vlc_error,
-    )
+        with videos_lock:
+            payload["videos"] = len(videos)
+            payload["current"] = get_current_video_name()
+    except Exception as e:
+        app.logger.exception("status: videos/count failed: %s", e)
+        payload["videos"] = 0
+
+    # Volume
+    try:
+        if _player is not None:
+            payload["volume"] = _player.audio_get_volume()
+    except Exception as e:
+        app.logger.warning("status: volume read failed: %s", e)
+        payload["volume"] = None
+
+    # Etat VLC
+    try:
+        payload["state"] = get_vlc_state_str()
+    except Exception as e:
+        app.logger.warning("status: state read failed: %s", e)
+        payload["state"] = "error"
+        payload["vlc_error"] = str(e)
+
+    return jsonify(payload), 200
 
 # Petit endpoint de vie simple
 @app.route("/health")
 def health():
     return jsonify(ok=True)
+
+@app.route("/status_min")
+def status_min():
+    with videos_lock:
+        count = len(videos)
+        current = videos[video_index] if (0 <= video_index < len(videos)) else None
+    return jsonify(ok=True, videos=count, current=current), 200
 
 # ==============================
 # Main
@@ -312,3 +340,4 @@ if __name__ == "__main__":
             video_index = 0
 
     app.run(host="0.0.0.0", port=5000)
+
