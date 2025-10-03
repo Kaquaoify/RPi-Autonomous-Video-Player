@@ -130,6 +130,7 @@
         <button id="btn-test-list" class="btn">Tester la connexion (lsd)</button>
         <button id="btn-sync" class="btn secondary">Synchroniser maintenant</button>
         <button id="btn-log" class="btn ghost">Afficher le log</button>
+        <button id="btn-delete-remote" class="btn" style="background:#7a1e1e">Supprimer le remote</button>
       </div>
       <pre id="output" class="log" style="margin-top:.75rem">—</pre>
     </section>
@@ -171,6 +172,24 @@
         await refresh();
       }catch(e){ show("Erreur installation: " + e.message); }
     };
+
+      el('btn-delete-remote').onclick = async ()=>{
+    const rn = (el('remote-name').value.trim() || 'gdrive');
+    if(!confirm(`Supprimer le remote "${rn}" ?\n(Cela ne supprime pas tes fichiers, seulement la configuration rclone)`)) return;
+    show(`Suppression du remote "${rn}"...`);
+    try{
+      const res = await api('/api/rclone/config/delete', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ remote_name: rn })
+      });
+      append(res.message || "Remote supprimé.");
+      // On efface le champ côté UI si c'était celui des réglages
+      await refresh();
+    }catch(e){
+      append("Erreur: " + e.message);
+    }
+  };
+
 
     el('btn-save-settings').onclick = async ()=>{
       try{

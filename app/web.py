@@ -555,6 +555,46 @@ def api_rclone_sync():
     threading.Thread(target=_run, daemon=True).start()
     return jsonify(message=f"Sync démarrée depuis {target} → {VIDEO_DIR} (log: {RCLONE_LOG})")
 
+@app.route("/api/rclone/config/delete", methods=["POST"])
+def api_rclone_config_delete():
+    """Supprime un remote rclone (unlink), sans toucher aux fichiers."""
+    if not which_rclone():
+        return jsonify(error="rclone non installé"), 400
+
+    data = request.get_json() or {}
+    rn = (data.get("remote_name") or get_setting("remote_name", "")).strip()
+    if not rn:
+        return jsonify(error="Nom du remote manquant"), 400
+
+    rc = which_rclone()
+    # Le remote existe ?
+    code_lr, out_lr = run_cmd([rc, "listremotes"], timeout=15, env=rclone_base_env())
+    existing = [x.strip().rstrip(":") for x in (out_lr or "").splitlines() if x.strip()]
+    if rn not in existing:
+        # Nettoie settings si besoin et informe
+        cfg = load_settings()
+        if cfg.get("remote_name") == rn:
+            cfg.pop("remote_name", None)
+            save_settings(cfg)
+        return jsonify(message=f"Remote '{rn}' inexistant (déjà supprimé).", code=0)
+
+    # Supprimer en non-interactif
+    cmd = [rc, "config", "delete", rn, "--non-interactive", "--auto-confirm"]
+    code, out = run_cmd(cmd, timeout=60, env=rclone_base_env())
+    if code != 0:
+        return jsonify(error=f"Échec suppression remote '{rn}'", output=out, code=code), 400
+
+    # Nettoyage des réglages locaux si c'était le remote actif
+    try:
+        cfg = load_settings()
+        if cfg.get("remote_name") == rn:
+            cfg.pop("remote_name", None)
+            save_settings(cfg)
+    except Exception as e:
+        app.logger.warning("unset remote_name failed: %s", e)
+
+    return jsonify(message=f"Remote '{rn}' supprimé.", output=out, code=code))
+
 @app.route("/api/rclone/log")
 def api_rclone_log():
     tail = int(request.args.get("tail", "200"))
