@@ -32,40 +32,75 @@ video_index = 0
 _thumb_thread_started = False
 _thumb_thread_lock = threading.Lock()
 
-# ==============================
-# VLC instance (opts dynamiques)
-# ==============================
-def build_vlc_instance():
-    """
-    Construit une instance VLC adaptée:
-    - Audio: ALSA (évite PulseAudio)
-    - Vidéo: si pas de DISPLAY/WAYLAND -> vout headless (kmsdrm), fallback fb
-    """
-    base_opts = [
+# VLC (lazy init pour éviter de bloquer Flask si VLC échoue)
+_instance = None
+_player = None
+_last_vlc_error = None
+_vlc_init_lock = threading.Lock()
+
+def _vlc_opts_base():
+    # Audio sur ALSA pour éviter PulseAudio
+    return [
         "--no-video-title-show",
         "--fullscreen",
         "--aout=alsa",
         "--alsa-audio-device=default",
     ]
 
+def _vlc_opts_candidates():
+    # Choix de vout selon environnement (headless -> kmsdrm / fb)
     headless = not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
     if headless:
-        # Sur Raspberry Pi OS récent (KMS): kmsdrm
-        try:
-            return vlc.Instance(*(base_opts + ["--vout=kmsdrm"]))
-        except Exception:
-            # Fallback sur framebuffer si kmsdrm indisponible
-            return vlc.Instance(*(base_opts + ["--vout=fb"]))
+        # kmsdrm (KMS/DRM) puis fallback framebuffer
+        return [
+            ["--vout=kmsdrm"],
+            ["--vout=fb"],
+            [],  # laisse VLC choisir si les 2 ci-dessus échouent
+        ]
     else:
-        # En session graphique (X/Wayland), laisse VLC choisir gl/gles2/xcb
-        return vlc.Instance(*base_opts)
+        # En session graphique, laisse VLC choisir (gl/gles2/xcb)
+        return [
+            [],  # no explicit vout
+            ["--vout=opengl"],
+            ["--vout=xcb"],
+        ]
 
-_instance = build_vlc_instance()
-_player = _instance.media_player_new()
-try:
-    _player.audio_set_volume(80)
-except Exception:
-    pass
+def ensure_vlc_ready() -> bool:
+    """
+    Initialise VLC si nécessaire. N'échoue pas bruyamment :
+    - Renvoie False si impossible; Flask continue de tourner.
+    - Stocke le dernier message d'erreur dans _last_vlc_error.
+    """
+    global _instance, _player, _last_vlc_error
+    if _player is not None:
+        return True
+
+    with _vlc_init_lock:
+        if _player is not None:
+            return True
+
+        base = _vlc_opts_base()
+        for extra in _vlc_opts_candidates():
+            opts = base + extra
+            try:
+                app.logger.info("VLC init try: %s", " ".join(opts) or "(default)")
+                inst = vlc.Instance(*opts)
+                ply = inst.media_player_new()
+                try:
+                    ply.audio_set_volume(80)
+                except Exception:
+                    pass
+                _instance = inst
+                _player = ply
+                app.logger.info("VLC init success with opts: %s", " ".join(opts) or "(default)")
+                _last_vlc_error = None
+                return True
+            except Exception as e:
+                _last_vlc_error = f"{type(e).__name__}: {e}"
+                app.logger.warning("VLC init failed with opts %s -> %s", " ".join(opts) or "(default)", _last_vlc_error)
+
+        app.logger.error("VLC could not be initialized with any option set.")
+        return False
 
 # ==============================
 # Helpers
@@ -73,6 +108,8 @@ except Exception:
 def set_media_by_index(idx: int) -> bool:
     """Charge la vidéo d'index idx dans le MediaPlayer (safe)."""
     global _player, videos, VIDEO_DIR
+    if not ensure_vlc_ready():
+        return False
     with videos_lock:
         if not videos or idx < 0 or idx >= len(videos):
             return False
@@ -100,10 +137,12 @@ def ensure_thumbnails_background():
     ).start()
 
 def get_vlc_state_str():
+    if _player is None:
+        return "uninitialized"
     try:
         st = _player.get_state()
     except Exception:
-        return None
+        return "error"
     mapping = {
         vlc.State.NothingSpecial: "idle",
         vlc.State.Opening: "opening",
@@ -124,10 +163,13 @@ def get_current_video_name():
 
 def ensure_media_loaded():
     """Si aucun média n'est chargé, charge la vidéo courante (si dispo)."""
+    if not ensure_vlc_ready():
+        return False
     if _player.get_media() is None:
         with videos_lock:
             if videos:
-                set_media_by_index(max(0, min(video_index, len(videos) - 1)))
+                return set_media_by_index(max(0, min(video_index, len(videos) - 1)))
+    return True
 
 # ==============================
 # Routes
@@ -162,33 +204,42 @@ def control(action):
         count = len(videos)
 
     if action == "play":
-        ensure_media_loaded()
+        if not ensure_media_loaded():
+            return jsonify(status="error", message=f"VLC not ready: {_last_vlc_error}"), 500
         _player.play()
     elif action == "pause":
+        if not ensure_vlc_ready():
+            return jsonify(status="error", message="VLC not ready"), 500
         _player.pause()
     elif action == "next":
         with videos_lock:
             if count == 0:
                 return jsonify(status="error", message="No videos"), 400
             video_index = (video_index + 1) % count
+        if not set_media_by_index(video_index):
+            return jsonify(status="error", message=f"Failed to set media: {_last_vlc_error}"), 500
         _player.stop()
-        if set_media_by_index(video_index):
-            _player.play()
+        _player.play()
     elif action == "prev":
         with videos_lock:
             if count == 0:
                 return jsonify(status="error", message="No videos"), 400
             video_index = (video_index - 1) % count
+        if not set_media_by_index(video_index):
+            return jsonify(status="error", message=f"Failed to set media: {_last_vlc_error}"), 500
         _player.stop()
-        if set_media_by_index(video_index):
-            _player.play()
+        _player.play()
     elif action == "volup":
+        if not ensure_vlc_ready():
+            return jsonify(status="error", message="VLC not ready"), 500
         try:
             vol = int(_player.audio_get_volume() or 0)
             _player.audio_set_volume(min(vol + VLC_AUDIO_VOLUME_STEP, 100))
         except Exception:
             pass
     elif action == "voldown":
+        if not ensure_vlc_ready():
+            return jsonify(status="error", message="VLC not ready"), 500
         try:
             vol = int(_player.audio_get_volume() or 0)
             _player.audio_set_volume(max(vol - VLC_AUDIO_VOLUME_STEP, 0))
@@ -216,10 +267,10 @@ def play_video():
             return jsonify(status="error", message="Video not found"), 404
         video_index = videos.index(video_name)
 
-    _player.stop()
     if not set_media_by_index(video_index):
-        return jsonify(status="error", message="Failed to set media"), 500
+        return jsonify(status="error", message=f"Failed to set media: {_last_vlc_error}"), 500
 
+    _player.stop()
     _player.play()
     app.logger.info("Now playing index=%d name=%s", video_index, video_name)
     return jsonify(status="playing", video=video_name)
@@ -227,7 +278,7 @@ def play_video():
 @app.route("/status")
 def status():
     try:
-        vol = _player.audio_get_volume()
+        vol = _player.audio_get_volume() if _player is not None else None
     except Exception:
         vol = None
     with videos_lock:
@@ -238,7 +289,14 @@ def status():
         volume=vol,
         state=get_vlc_state_str(),
         current=get_current_video_name(),
+        vlc_ready=(_player is not None),
+        vlc_error=_last_vlc_error,
     )
+
+# Petit endpoint de vie simple
+@app.route("/health")
+def health():
+    return jsonify(ok=True)
 
 # ==============================
 # Main
@@ -247,11 +305,10 @@ if __name__ == "__main__":
     os.makedirs(VIDEO_DIR, exist_ok=True)
     os.makedirs(THUMB_DIR, exist_ok=True)
 
-    # Précharge une vidéo par défaut pour que "Play" fonctionne direct
+    # On NE pré-initialise PAS VLC ici (lazy). On précharge juste la 1ère vidéo si dispo
     safe_refresh_videos()
     with videos_lock:
         if videos:
             video_index = 0
-            set_media_by_index(video_index)
 
     app.run(host="0.0.0.0", port=5000)
