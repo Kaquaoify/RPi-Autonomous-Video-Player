@@ -10,7 +10,7 @@ set -e
 
 # Variables
 USER_HOME=/home/$USER
-REPO_URL="https://github.com/<ton-username>/RPi-Autonomous-Video-Player.git"
+REPO_URL="https://github.com/kaquaoify/RPi-Autonomous-Video-Player.git"
 INSTALL_DIR="$USER_HOME/RPi-Autonomous-Video-Player"
 VIDEO_DIR="$USER_HOME/Videos/RPi-Autonomous-Video-Player"
 SERVICE_NAME="rpi-avp"
