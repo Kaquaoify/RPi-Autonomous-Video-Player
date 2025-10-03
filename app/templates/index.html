@@ -34,10 +34,11 @@
                 {% for video in videos %}
                 <div class="video-item">
                     <div class="thumbnail">
-                        <!-- On pourra générer la miniature via VLC ou ffmpeg plus tard -->
                         <img src="{{ url_for('static', filename='img/placeholder.png') }}" alt="{{ video }}">
                     </div>
-                    <div class="video-name">{{ video }}</div>
+                    <div class="video-title">
+                        <div class="scrolling-text">{{ video }}</div>
+                    </div>
                 </div>
                 {% endfor %}
             </div>
