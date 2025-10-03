@@ -82,3 +82,5 @@ sudo systemctl enable $SERVICE_NAME
 sudo systemctl start $SERVICE_NAME
 
 echo "Installation terminée. Le service '$SERVICE_NAME' est en cours d'exécution et démarrera automatiquement au boot."
+
+# Test Github
