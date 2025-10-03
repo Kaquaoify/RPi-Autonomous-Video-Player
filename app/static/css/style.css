@@ -1,120 +1,91 @@
-body {
-    margin: 0;
-    font-family: 'Segoe UI', sans-serif;
-    background-color: #121212;
-    color: #e0e0e0;
+/* app/static/css/style.css */
+:root{
+  --bg:#121212;
+  --panel:#1f1f1f;
+  --muted:#2a2a2a;
+  --text:#e0e0e0;
+  --accent:#3a3a3a;
 }
 
-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 20px;
-    background-color: #1f1f1f;
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family: "Segoe UI", Roboto, Arial, sans-serif;
+  background:var(--bg);
+  color:var(--text);
 }
 
-.logo {
-    font-size: 1.5em;
-    font-weight: bold;
+header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:12px 20px;
+  background:var(--panel);
 }
 
-.header-buttons button {
-    background: none;
-    border: none;
-    color: #e0e0e0;
-    font-size: 1.5em;
-    cursor: pointer;
+.logo{font-weight:600; font-size:1.2rem}
+.header-buttons button{
+  background:none;border:0;color:var(--text);font-size:1.2rem;cursor:pointer
 }
 
-main {
-    padding: 20px;
+main{padding:18px; max-width:1200px; margin:0 auto}
+
+.video-container{
+  background:var(--panel);
+  border-radius:10px;
+  padding:12px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:10px;
+  margin-bottom:18px;
 }
 
-.video-container {
-    background-color: #1f1f1f;
-    border-radius: 10px;
-    padding: 10px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    margin-bottom: 20px;
+#vlc-output{
+  width:100%;
+  height:340px;
+  background:#000;
+  border-radius:8px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:#888;
+  font-size:0.95rem;
 }
 
-#vlc-output {
-    width: 100%;
-    height: 300px;
-    background-color: #000;
-    border-radius: 10px;
-    margin-bottom: 10px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+.vlc-controls{display:flex;gap:8px}
+.vlc-controls button{
+  background:var(--accent);
+  border:0;
+  color:var(--text);
+  padding:8px 12px;
+  border-radius:6px;
+  cursor:pointer;
 }
+.vlc-controls button:hover{background:#4a4a4a}
 
-.vlc-controls {
-    display: flex;
-    justify-content: center;
-    gap: 10px;
+/* explorer */
+.video-explorer{background:var(--panel); padding:12px; border-radius:10px}
+.video-list{display:flex;flex-wrap:wrap;gap:12px}
+.video-item{
+  width:150px;
+  background:var(--muted);
+  border-radius:8px;
+  padding:6px;
+  text-align:center;
+  cursor:pointer;
+  transition:transform .12s ease, box-shadow .12s;
 }
+.video-item:hover{transform:translateY(-4px); box-shadow:0 6px 18px rgba(0,0,0,.6)}
+.thumbnail img{width:100%; height:auto; border-radius:6px; display:block}
+.video-title{margin-top:6px; overflow:hidden; white-space:nowrap}
 
-.vlc-controls button {
-    background-color: #333;
-    border: none;
-    color: #e0e0e0;
-    padding: 8px 12px;
-    border-radius: 5px;
-    cursor: pointer;
-}
+/* scrolling text: only active when content exceeds width */
+.scrolling-text{display:inline-block;padding-left:100%; animation:scroll-text 8s linear infinite}
+@keyframes scroll-text{0%{transform:translateX(0%)}100%{transform:translateX(-100%)}}
 
-.vlc-controls button:hover {
-    background-color: #555;
-}
-
-/* Explorateur de vidéos */
-.video-explorer {
-    background-color: #1f1f1f;
-    padding: 10px;
-    border-radius: 10px;
-}
-
-.video-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-}
-
-.video-item {
-    background-color: #2a2a2a;
-    border-radius: 8px;
-    width: 150px;
-    text-align: center;
-    padding: 5px;
-    cursor: pointer;
-}
-
-.thumbnail img {
-    width: 100%;
-    border-radius: 5px;
-}
-
-.video-title {
-    margin-top: 5px;
-    width: 100%;
-    overflow: hidden;
-    white-space: nowrap;
-}
-
-.scrolling-text {
-    display: inline-block;
-    padding-left: 100%;
-    animation: scroll-text 8s linear infinite;
-}
-
-@keyframes scroll-text {
-    0% {
-        transform: translateX(0%);
-    }
-    100% {
-        transform: translateX(-100%);
-    }
+/* small screens */
+@media(max-width:700px){
+  #vlc-output{height:220px}
+  .video-item{width:45%}
 }

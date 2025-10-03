@@ -1,114 +1,139 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-# ====================================================
-# RPi-Autonomous-Video-Player - Install Script (Interactive)
-# ====================================================
-# Installation des dépendances et configuration du RPi
-# pour exécuter le projet de manière autonome.
-# L'utilisateur confirme chaque étape avec y/n.
-# ====================================================
+# install.sh (interactif)
+# Installe l'application RPi-Autonomous-Video-Player et ses dépendances sur un RPi Ubuntu.
 
-# Variables
-USER_HOME=/home/$USER
-REPO_URL="https://github.com/kaquaoify/RPi-Autonomous-Video-Player.git"
-INSTALL_DIR="$USER_HOME/RPi-Autonomous-Video-Player"
-VIDEO_DIR="$USER_HOME/Videos/RPi-Autonomous-Video-Player"
-VENV_DIR="$INSTALL_DIR/venv"
-SERVICE_NAME="rpi-avp"
+APP_NAME="RPi-Autonomous-Video-Player"
+GIT_USER="kaquaoify"
+REPO_URL="https://github.com/${GIT_USER}/${APP_NAME}.git"
 
-# Fonction de confirmation y/n
+USER_HOME="/home/$USER"
+INSTALL_DIR="${USER_HOME}/${APP_NAME}"
+VIDEO_DIR="${USER_HOME}/Videos/${APP_NAME}"
+THUMB_DIR="${VIDEO_DIR}/thumbnails"
+VENV_DIR="${INSTALL_DIR}/venv"
+SERVICE_NAME="rpi-avp.service"
+PYTHON_BIN="python3"
+PIP_BIN="pip3"
+
 confirm() {
+    local prompt="$1"
     while true; do
-        read -p "$1 [y/n]: " yn
-        case $yn in
-            [Yy]* ) break;;
-            [Nn]* ) echo "Installation annulée."; exit;;
-            * ) echo "y/n";;
+        read -r -p "${prompt} (y/n) : " yn
+        case "$yn" in
+            [Yy]* ) break ;;
+            [Nn]* ) echo "Annulation par l'utilisateur."; exit 1 ;;
+            * ) echo "Merci de répondre par y (oui) ou n (non)." ;;
         esac
     done
 }
 
-echo "Installation de RPi-Autonomous-Video-Player"
+echo "=== Installation de ${APP_NAME} ==="
+echo "Utilisateur : $USER"
+echo "Répertoire d'installation : ${INSTALL_DIR}"
+echo
 
-# -----------------------------
-# 1. Mise à jour du système
-# -----------------------------
-confirm "Souhaitez-vous mettre à jour le système et les paquets ?"
-echo "Mise à jour du système..."
+# 1) Mise à jour système
+confirm "1) Mettre à jour le système (apt update && apt upgrade)"
 sudo apt update && sudo apt upgrade -y
 sudo apt autoremove -y
-echo "Système mis à jour."
 
-# -----------------------------
-# 2. Installation des dépendances système
-# -----------------------------
-confirm "Souhaitez-vous installer les dépendances système ?"
-echo "Installation des dépendances système..."
-sudo apt install -y python3 python3-venv python3-pip vlc rclone git curl wget unzip
-echo "Dépendances système installées."
+# 2) Installer paquets système essentiels
+confirm "2) Installer paquets système (python3, venv, pip, vlc, ffmpeg, git, curl, unzip)"
+sudo apt install -y ${PYTHON_BIN} ${PIP_BIN} python3-venv vlc ffmpeg git curl unzip rclone
 
-# -----------------------------
-# 3. Création des dossiers
-# -----------------------------
-confirm "Souhaitez-vous créer les dossiers nécessaires pour les vidéos ?"
-echo "Création des dossiers..."
-mkdir -p "$VIDEO_DIR"
-echo "Dossiers créés : $VIDEO_DIR"
-
-# -----------------------------
-# 4. Clonage ou mise à jour du dépôt GitHub
-# -----------------------------
-confirm "Souhaitez-vous cloner ou mettre à jour le dépôt GitHub ?"
-if [ -d "$INSTALL_DIR" ]; then
-    echo "Le dépôt existe déjà, mise à jour..."
-    cd "$INSTALL_DIR"
-    git pull
+# 3) Cloner ou mettre à jour le dépôt
+if [ -d "${INSTALL_DIR}/.git" ]; then
+    confirm "3) Mettre à jour le dépôt (${INSTALL_DIR}) depuis GitHub"
+    cd "${INSTALL_DIR}"
+    git fetch --all --prune
+    git reset --hard origin/main || true
+    git pull --rebase origin main || true
 else
-    echo "Clonage du dépôt..."
-    git clone "$REPO_URL" "$INSTALL_DIR"
+    confirm "3) Cloner le dépôt depuis ${REPO_URL} vers ${INSTALL_DIR}"
+    git clone "${REPO_URL}" "${INSTALL_DIR}"
 fi
-echo "Dépôt prêt dans $INSTALL_DIR"
 
-# -----------------------------
-# 5. Création du virtual environment
-# -----------------------------
-confirm "Souhaitez-vous créer le venv ?"
-echo "Création du virtual environment..."
-python3 -m venv "$VENV_DIR"
+# 4) Créer dossiers vidéos / miniatures
+confirm "4) Créer le dossier vidéos et thumbnails (${VIDEO_DIR})"
+mkdir -p "${VIDEO_DIR}"
+mkdir -p "${THUMB_DIR}"
+# s'assure que l'utilisateur courant possède les dossiers
+sudo chown -R "${USER}:${USER}" "${VIDEO_DIR}" "${THUMB_DIR}" "${INSTALL_DIR}"
 
-echo "Installation des dépendances Python dans le virtual environment..."
-source "$VENV_DIR/bin/activate"
-pip install --upgrade pip
-pip install -r "$INSTALL_DIR/requirements.txt"
+# 5) Créer virtualenv Python
+confirm "5) Créer l'environnement virtuel Python (venv) dans ${VENV_DIR}"
+${PYTHON_BIN} -m venv "${VENV_DIR}"
+
+# 6) Installer dépendances Python dans le venv
+confirm "6) Installer les dépendances Python depuis ${INSTALL_DIR}/requirements.txt (si présent)"
+# activer venv et installer
+# shellcheck source=/dev/null
+source "${VENV_DIR}/bin/activate"
+pip install --upgrade pip setuptools wheel
+
+if [ -f "${INSTALL_DIR}/requirements.txt" ]; then
+    pip install -r "${INSTALL_DIR}/requirements.txt"
+else
+    echo "Aucun requirements.txt trouvé dans ${INSTALL_DIR}. Installation minimale : flask, python-vlc, pillow"
+    pip install flask python-vlc pillow
+fi
 deactivate
-echo "Virtual environment prêt."
 
-# -----------------------------
-# 6. Création du service systemd
-# -----------------------------
-confirm "Souhaitez-vous créer le service systemd pour lancer le projet automatiquement au démarrage ?"
-echo "Création du service systemd..."
-SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME.service"
+# 7) Vérification ffmpeg / vlc / python-vlc
+echo "7) Vérifications rapides :"
+if command -v ffmpeg >/dev/null 2>&1; then
+    echo " - ffmpeg OK ($(ffmpeg -version | head -n1))"
+else
+    echo " - ffmpeg NON trouvé"
+fi
 
-sudo bash -c "cat > $SERVICE_FILE" <<EOL
+if command -v vlc >/dev/null 2>&1; then
+    echo " - vlc OK ($(vlc --version 2>/dev/null | head -n1 || true))"
+else
+    echo " - vlc NON trouvé"
+fi
+
+# 8) Créer service systemd (utilise python du venv)
+confirm "8) Créer/mettre à jour le service systemd pour lancer l'application au démarrage"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}"
+
+sudo tee "${SERVICE_FILE}" > /dev/null <<EOF
 [Unit]
 Description=RPi-Autonomous-Video-Player
-After=network.target
+After=network-online.target
 
 [Service]
-User=$USER
-WorkingDirectory=$INSTALL_DIR
-ExecStart=$VENV_DIR/bin/python $INSTALL_DIR/app/web.py
+Type=simple
+User=${USER}
+WorkingDirectory=${INSTALL_DIR}
+# Utiliser le python du virtualenv
+ExecStart=${VENV_DIR}/bin/python ${INSTALL_DIR}/app/web.py
 Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+Environment=VIRTUAL_ENV=${VENV_DIR}
+Environment=PATH=${VENV_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 [Install]
 WantedBy=multi-user.target
-EOL
+EOF
 
 sudo systemctl daemon-reload
-sudo systemctl enable $SERVICE_NAME
-sudo systemctl start $SERVICE_NAME
-echo "Service systemd '$SERVICE_NAME' actif."
+sudo systemctl enable "${SERVICE_NAME}"
+sudo systemctl restart "${SERVICE_NAME}" || true
 
-echo "Installation terminée. Le projet est prêt et le service démarrera automatiquement au démarrage du système."
+echo
+echo "=== Installation terminée ==="
+echo "Service systemd: ${SERVICE_NAME}"
+echo "Pour voir le statut : sudo systemctl status ${SERVICE_NAME}"
+echo "Logs (journal) : sudo journalctl -u ${SERVICE_NAME} -f"
+echo "Interface accessible sur : http://$(hostname -I | awk '{print $1}'):5000"
+echo
+echo "Remarques :"
+echo "- Ce script installe les paquets système et crée un venv. La configuration 'Première installation' (rclone / Drive) se fera depuis l'interface Flask."
+echo "- Si vous exécutez ce script via SSH, téléchargez-le d'abord :"
+echo "    curl -O https://raw.githubusercontent.com/${GIT_USER}/${APP_NAME}/main/install.sh"
+echo "    bash install.sh"
+echo "- Évitez : curl https://... | bash (le piping casse les prompts interactifs)."

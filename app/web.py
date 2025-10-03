@@ -1,53 +1,183 @@
-from flask import Flask, render_template, request, jsonify
-import vlc
+# app/web.py
+from flask import Flask, render_template, request, jsonify, send_from_directory
 import os
+import threading
+import subprocess
+import time
 
-app = Flask(__name__)
+# try to import vlc; if not installed, raise helpful error
+try:
+    import vlc
+except Exception as exc:
+    raise RuntimeError("python-vlc is required. Install with: sudo apt install python3-vlc") from exc
 
-VIDEO_DIR = os.path.expanduser("~/Videos/RPi-Autonomous-Video-Player")
-videos = [f for f in os.listdir(VIDEO_DIR) if f.endswith((".mp4", ".mkv", ".avi"))]
+from utils import generate_thumbnails, refresh_videos_list
 
-player = vlc.MediaPlayer()
-video_index = 0  # pour next/prev
+app = Flask(__name__, template_folder="templates", static_folder="static")
 
+# ==============================
+# Configurables (change per RPi)
+# ==============================
+USER_HOME = os.path.expanduser("~")                   # home de l'utilisateur courant
+INSTALL_DIR = os.path.join(USER_HOME, "RPi-Autonomous-Video-Player")
+VIDEO_DIR = os.path.join(USER_HOME, "Videos", "RPi-Autonomous-Video-Player")
+THUMB_DIR = os.path.join(VIDEO_DIR, "thumbnails")
+REMOTE_NAME = "gdrive"                                # nom rclone remote
+REMOTE_FOLDER = "VideosRPi"                           # dossier sur Google Drive
+VLC_AUDIO_VOLUME_STEP = 10                            # incrément volume
+VLC_START_AT = 5                                      # seconde utilisée pour thumbnail capture
+
+# ==============================
+# Global state
+# ==============================
+videos_lock = threading.Lock()
+videos = refresh_videos_list(VIDEO_DIR)
+video_index = 0
+
+# VLC player (single instance)
+_instance = vlc.Instance()
+_player = vlc.MediaPlayer()
+# Ensure volume starts at 80 if possible
+try:
+    _player.audio_set_volume(80)
+except Exception:
+    pass
+
+# ==============================
+# Helpers
+# ==============================
+def set_media_by_index(idx):
+    global _player, videos, VIDEO_DIR
+    if not videos:
+        return False
+    name = videos[idx]
+    path = os.path.join(VIDEO_DIR, name)
+    media = _instance.media_new(path)
+    _player.set_media(media)
+    return True
+
+def safe_refresh_videos():
+    global videos
+    with videos_lock:
+        videos = refresh_videos_list(VIDEO_DIR)
+
+# run thumbnail generation in background to avoid blocking page load
+def ensure_thumbnails_background():
+    t = threading.Thread(target=generate_thumbnails, args=(VIDEO_DIR, THUMB_DIR, VLC_START_AT), daemon=True)
+    t.start()
+
+# ==============================
+# Routes
+# ==============================
 @app.route("/")
 def index():
-    return render_template("index.html", videos=videos)
+    safe_refresh_videos()
+    ensure_thumbnails_background()
+    with videos_lock:
+        vlist = list(videos)
+    return render_template("index.html", videos=vlist)
 
-# Route pour les contrôles (play/pause/next/prev/volup/voldown)
+@app.route("/thumbnails/<filename>")
+def thumbnails(filename):
+    # Serve thumbnail file if exists; else return 404
+    if not os.path.isdir(THUMB_DIR):
+        return ("", 404)
+    return send_from_directory(THUMB_DIR, filename)
+
 @app.route("/control/<action>", methods=["POST"])
 def control(action):
-    global video_index
+    global video_index, videos, _player
+    action = action.lower()
+    with videos_lock:
+        count = len(videos)
     if action == "play":
-        player.play()
+        _player.play()
     elif action == "pause":
-        player.pause()
+        _player.pause()
     elif action == "next":
-        video_index = (video_index + 1) % len(videos)
-        player.set_media(vlc.Media(os.path.join(VIDEO_DIR, videos[video_index])))
-        player.play()
+        with videos_lock:
+            if count == 0:
+                return jsonify(status="error", message="No videos"), 400
+            video_index = (video_index + 1) % count
+            set_media_by_index(video_index)
+            _player.play()
     elif action == "prev":
-        video_index = (video_index - 1) % len(videos)
-        player.set_media(vlc.Media(os.path.join(VIDEO_DIR, videos[video_index])))
-        player.play()
+        with videos_lock:
+            if count == 0:
+                return jsonify(status="error", message="No videos"), 400
+            video_index = (video_index - 1) % count
+            set_media_by_index(video_index)
+            _player.play()
     elif action == "volup":
-        player.audio_set_volume(min(player.audio_get_volume()+10, 100))
+        try:
+            vol = _player.audio_get_volume()
+            _player.audio_set_volume(min(vol + VLC_AUDIO_VOLUME_STEP, 100))
+        except Exception:
+            pass
     elif action == "voldown":
-        player.audio_set_volume(max(player.audio_get_volume()-10, 0))
-    return jsonify({"status": "ok", "action": action})
+        try:
+            vol = _player.audio_get_volume()
+            _player.audio_set_volume(max(vol - VLC_AUDIO_VOLUME_STEP, 0))
+        except Exception:
+            pass
+    else:
+        return jsonify(status="error", message="Unknown action"), 400
 
-# Route pour lancer une vidéo depuis l'explorateur
+    return jsonify(status="ok", action=action)
+
 @app.route("/play-video", methods=["POST"])
 def play_video():
-    global video_index
-    video_name = request.json.get("video")
-    video_path = os.path.join(VIDEO_DIR, video_name)
-    if os.path.exists(video_path):
-        player.set_media(vlc.Media(video_path))
-        player.play()
-        video_index = videos.index(video_name)
-        return jsonify({"status": "playing", "video": video_name})
-    return jsonify({"status": "error", "message": "Fichier introuvable"}), 404
+    global video_index, videos
+    data = request.get_json() or {}
+    video_name = data.get("video")
+    if not video_name:
+        return jsonify(status="error", message="No video specified"), 400
 
+    safe_refresh_videos()
+    with videos_lock:
+        if video_name not in videos:
+            return jsonify(status="error", message="Video not found"), 404
+        video_index = videos.index(video_name)
+    set_media_by_index(video_index)
+    _player.play()
+    return jsonify(status="playing", video=video_name)
+
+@app.route("/sync", methods=["POST"])
+def sync_videos():
+    """
+    Trigger rclone sync in background and regenerate thumbnails afterwards.
+    """
+    def run_sync():
+        cmd = ["rclone", "sync", f"{REMOTE_NAME}:{REMOTE_FOLDER}", VIDEO_DIR, "--delete-during"]
+        # run process and capture output to log file
+        with open(os.path.join(INSTALL_DIR, "rclone_sync.log"), "a") as fh:
+            fh.write(f"\n--- sync started {time.ctime()} ---\n")
+            proc = subprocess.Popen(cmd, stdout=fh, stderr=subprocess.STDOUT)
+            proc.communicate()
+            fh.write(f"--- sync finished {time.ctime()} exit={proc.returncode} ---\n")
+        # regenerate thumbnails and refresh list
+        generate_thumbnails(VIDEO_DIR, THUMB_DIR, VLC_START_AT)
+        safe_refresh_videos()
+
+    threading.Thread(target=run_sync, daemon=True).start()
+    return jsonify(status="started")
+
+# simple status endpoint
+@app.route("/status")
+def status():
+    try:
+        vol = _player.audio_get_volume()
+    except Exception:
+        vol = None
+    with videos_lock:
+        count = len(videos)
+    return jsonify(running=True, videos=count, volume=vol)
+
+# ==============================
+# Main
+# ==============================
 if __name__ == "__main__":
+    # ensure directories exist
+    os.makedirs(VIDEO_DIR, exist_ok=True)
+    os.makedirs(THUMB_DIR, exist_ok=True)
     app.run(host="0.0.0.0", port=5000)

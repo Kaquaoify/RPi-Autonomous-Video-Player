@@ -1,48 +1,53 @@
+<!-- app/templates/index.html -->
 <!doctype html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <title>RPi Autonomous Video Player</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RPi Autonomous Video Player</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-    <header>
-        <div class="logo">RPi AVP</div>
-        <div class="header-buttons">
-            <button id="btn-settings" title="Paramètres">⚙️</button>
+  <header>
+    <div class="logo">RPi AVP</div>
+    <div class="header-buttons">
+      <button id="btn-settings" title="Paramètres">⚙</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="video-container">
+      <div id="vlc-output">Vidéo (lecture sur HDMI)</div>
+      <div class="vlc-controls">
+        <button class="vlc-btn" data-action="prev">⏮</button>
+        <button class="vlc-btn" data-action="play">▶</button>
+        <button class="vlc-btn" data-action="pause">⏸</button>
+        <button class="vlc-btn" data-action="next">⏭</button>
+        <button class="vlc-btn" data-action="volup">Vol+</button>
+        <button class="vlc-btn" data-action="voldown">Vol-</button>
+      </div>
+    </section>
+
+    <section class="video-explorer">
+      <h2>Explorateur de vidéos</h2>
+      <div class="video-list" id="video-list">
+        {% for video in videos %}
+        {% set base = video.rsplit('.', 1)[0] %}
+        <div class="video-item" data-name="{{ video }}">
+          <div class="thumbnail">
+            <img src="{{ url_for('thumbnails', filename=base + '.png') }}" 
+                 alt="{{ video }}" 
+                 class="video-thumb">
+          </div>
+          <div class="video-title">
+            <div class="scrolling-text">{{ video }}</div>
+          </div>
         </div>
-    </header>
+        {% endfor %}
+      </div>
+    </section>
+  </main>
 
-    <main>
-        <section class="video-container">
-            <div id="vlc-output">Sortie VLC ici</div>
-            <div class="vlc-controls">
-                <button onclick="sendAction('prev')">⏮</button>
-                <button onclick="sendAction('play')">▶️</button>
-                <button onclick="sendAction('pause')">⏸</button>
-                <button onclick="sendAction('next')">⏭</button>
-                <button onclick="sendAction('volup')">🔊+</button>
-                <button onclick="sendAction('voldown')">🔊-</button>
-            </div>
-        </section>
-
-        <section class="video-explorer">
-            <h2>Explorateur de vidéos</h2>
-            <div class="video-list">
-                {% for video in videos %}
-                <div class="video-item">
-                    <div class="thumbnail">
-                        <img src="{{ url_for('static', filename='img/placeholder.png') }}" alt="{{ video }}">
-                    </div>
-                    <div class="video-title">
-                        <div class="scrolling-text">{{ video }}</div>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </section>
-    </main>
-
-    <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
 </body>
 </html>
