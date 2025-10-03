@@ -2,6 +2,7 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory
 import os
 import threading
+import time
 
 # try to import vlc; if not installed, raise helpful error
 try:
@@ -25,60 +26,50 @@ VLC_START_AT = 5
 # ==============================
 # Global state
 # ==============================
-videos_lock = threading.Lock()
+videos_lock = threading.RLock()  # RLock pour éviter l'auto-deadlock
 videos = refresh_videos_list(VIDEO_DIR)
 video_index = 0
+
+# Snapshots non bloquants (pour /status même si lock occupé)
+_snapshot_lock = threading.Lock()
+_snapshot_videos_count = len(videos)
+_snapshot_current = videos[0] if videos else None
 
 _thumb_thread_started = False
 _thumb_thread_lock = threading.Lock()
 
-# VLC (lazy init pour éviter de bloquer Flask si VLC échoue)
+# VLC lazy init (ne bloque jamais le démarrage de Flask)
 _instance = None
 _player = None
 _last_vlc_error = None
 _vlc_init_lock = threading.Lock()
 
 def _vlc_opts_base():
-    # Audio sur ALSA pour éviter PulseAudio
-    return [
-        "--no-video-title-show",
-        "--fullscreen",
-        "--aout=alsa",
-        "--alsa-audio-device=default",
-    ]
+    return ["--no-video-title-show", "--fullscreen", "--aout=alsa", "--alsa-audio-device=default"]
 
 def _vlc_opts_candidates():
-    # Choix de vout selon environnement (headless -> kmsdrm / fb)
     headless = not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
     if headless:
-        # kmsdrm (KMS/DRM) puis fallback framebuffer
         return [
             ["--vout=kmsdrm"],
             ["--vout=fb"],
-            [],  # laisse VLC choisir si les 2 ci-dessus échouent
+            [],  # dernier fallback: laisser VLC choisir
         ]
     else:
-        # En session graphique, laisse VLC choisir (gl/gles2/xcb)
         return [
-            [],  # no explicit vout
+            [],               # par défaut (gl/gles2/xcb)
             ["--vout=opengl"],
             ["--vout=xcb"],
         ]
 
 def ensure_vlc_ready() -> bool:
-    """
-    Initialise VLC si nécessaire. N'échoue pas bruyamment :
-    - Renvoie False si impossible; Flask continue de tourner.
-    - Stocke le dernier message d'erreur dans _last_vlc_error.
-    """
+    """Initialise VLC si nécessaire; n'empêche jamais Flask de tourner."""
     global _instance, _player, _last_vlc_error
     if _player is not None:
         return True
-
     with _vlc_init_lock:
         if _player is not None:
             return True
-
         base = _vlc_opts_base()
         for extra in _vlc_opts_candidates():
             opts = base + extra
@@ -92,38 +83,75 @@ def ensure_vlc_ready() -> bool:
                     pass
                 _instance = inst
                 _player = ply
-                app.logger.info("VLC init success with opts: %s", " ".join(opts) or "(default)")
                 _last_vlc_error = None
+                app.logger.info("VLC init success.")
                 return True
             except Exception as e:
                 _last_vlc_error = f"{type(e).__name__}: {e}"
                 app.logger.warning("VLC init failed with opts %s -> %s", " ".join(opts) or "(default)", _last_vlc_error)
-
         app.logger.error("VLC could not be initialized with any option set.")
         return False
 
-# ==============================
-# Helpers
-# ==============================
+# ------------------------------
+# Helpers non-bloquants
+# ------------------------------
+def _update_snapshot():
+    global _snapshot_videos_count, _snapshot_current
+    with _snapshot_lock:
+        _snapshot_videos_count = len(videos)
+        if 0 <= video_index < len(videos):
+            _snapshot_current = videos[video_index]
+        else:
+            _snapshot_current = None
+
+def _acquire(lock: threading.RLock, timeout: float) -> bool:
+    # Python 3: acquire(timeout=...) existe; sur vieilles versions: fallback
+    try:
+        return lock.acquire(timeout=timeout)
+    except TypeError:
+        start = time.time()
+        while time.time() - start < timeout:
+            if lock.acquire(False):
+                return True
+            time.sleep(0.01)
+        return False
+
+def safe_refresh_videos(non_blocking: bool = True, timeout: float = 0.2):
+    """Recharge la liste des vidéos sans bloquer indéfiniment."""
+    global videos
+    if non_blocking:
+        got = _acquire(videos_lock, timeout)
+        if not got:
+            app.logger.debug("safe_refresh_videos: skipped (lock busy)")
+            return
+    else:
+        videos_lock.acquire()
+
+    try:
+        videos = refresh_videos_list(VIDEO_DIR)
+        _update_snapshot()
+    finally:
+        videos_lock.release()
+
 def set_media_by_index(idx: int) -> bool:
-    """Charge la vidéo d'index idx dans le MediaPlayer (safe)."""
+    """Charge la vidéo d'index idx dans le MediaPlayer."""
     global _player, videos, VIDEO_DIR
     if not ensure_vlc_ready():
         return False
-    with videos_lock:
+    if not _acquire(videos_lock, 0.2):
+        app.logger.warning("set_media_by_index: lock busy, abort")
+        return False
+    try:
         if not videos or idx < 0 or idx >= len(videos):
             return False
         name = videos[idx]
-    path = os.path.join(VIDEO_DIR, name)
-    media = _instance.media_new(path)
-    _player.set_media(media)
-    return True
-
-def safe_refresh_videos():
-    """Recharge la liste des vidéos (thread-safe)."""
-    global videos
-    with videos_lock:
-        videos = refresh_videos_list(VIDEO_DIR)
+        path = os.path.join(VIDEO_DIR, name)
+        media = _instance.media_new(path)
+        _player.set_media(media)
+        return True
+    finally:
+        _update_snapshot()
+        videos_lock.release()
 
 def ensure_thumbnails_background():
     """Lance la génération des miniatures en arrière-plan (une seule fois)."""
@@ -155,20 +183,17 @@ def get_vlc_state_str():
     }
     return mapping.get(st, str(st))
 
-def get_current_video_name():
-    with videos_lock:
-        if not videos or not (0 <= video_index < len(videos)):
-            return None
-        return videos[video_index]
+def get_snapshot():
+    with _snapshot_lock:
+        return _snapshot_videos_count, _snapshot_current
 
 def ensure_media_loaded():
-    """Si aucun média n'est chargé, charge la vidéo courante (si dispo)."""
+    """Charge une vidéo si rien n'est prêt, sans bloquer."""
     if not ensure_vlc_ready():
         return False
     if _player.get_media() is None:
-        with videos_lock:
-            if videos:
-                return set_media_by_index(max(0, min(video_index, len(videos) - 1)))
+        # tente de lire l'index courant
+        return set_media_by_index(max(0, min(video_index, len(videos) - 1))) if videos else False
     return True
 
 # ==============================
@@ -176,11 +201,20 @@ def ensure_media_loaded():
 # ==============================
 @app.route("/")
 def index():
-    safe_refresh_videos()
+    # rafraîchit sans bloquer (si lock occupé, on sert quand même la page)
+    safe_refresh_videos(non_blocking=True, timeout=0.1)
     ensure_thumbnails_background()
-    with videos_lock:
-        vlist = list(videos)
-    return render_template("index.html", videos=vlist)
+    # on lit la liste SANS lock pour éviter les blocages (copie défensive)
+    lst = []
+    if _acquire(videos_lock, 0.05):
+        try:
+            lst = list(videos)
+        finally:
+            videos_lock.release()
+    else:
+        # fallback rapide: aucune liste (la page se charge quand même)
+        lst = []
+    return render_template("index.html", videos=lst)
 
 @app.route("/settings")
 def settings_page():
@@ -200,8 +234,8 @@ def thumbnails(filename):
 def control(action):
     global video_index
     action = action.lower()
-    with videos_lock:
-        count = len(videos)
+    # Pas de lock long ici; on lit juste la taille en snapshot
+    count, _ = get_snapshot()
 
     if action == "play":
         if not ensure_media_loaded():
@@ -212,23 +246,20 @@ def control(action):
             return jsonify(status="error", message="VLC not ready"), 500
         _player.pause()
     elif action == "next":
-        with videos_lock:
-            if count == 0:
-                return jsonify(status="error", message="No videos"), 400
-            video_index = (video_index + 1) % count
+        if count == 0:
+            return jsonify(status="error", message="No videos"), 400
+        # on ajuste l'index de manière optimiste, puis on charge
+        video_index = (video_index + 1) % max(1, count)
         if not set_media_by_index(video_index):
             return jsonify(status="error", message=f"Failed to set media: {_last_vlc_error}"), 500
-        _player.stop()
-        _player.play()
+        _player.stop(); _player.play()
     elif action == "prev":
-        with videos_lock:
-            if count == 0:
-                return jsonify(status="error", message="No videos"), 400
-            video_index = (video_index - 1) % count
+        if count == 0:
+            return jsonify(status="error", message="No videos"), 400
+        video_index = (video_index - 1) % max(1, count)
         if not set_media_by_index(video_index):
             return jsonify(status="error", message=f"Failed to set media: {_last_vlc_error}"), 500
-        _player.stop()
-        _player.play()
+        _player.stop(); _player.play()
     elif action == "volup":
         if not ensure_vlc_ready():
             return jsonify(status="error", message="VLC not ready"), 500
@@ -260,13 +291,29 @@ def play_video():
     if not video_name:
         return jsonify(status="error", message="No video specified"), 400
 
-    safe_refresh_videos()
-    with videos_lock:
-        if video_name not in videos:
-            app.logger.warning("Video not found: %s", video_name)
-            return jsonify(status="error", message="Video not found"), 404
-        video_index = videos.index(video_name)
+    # rafraîchit sans bloquer
+    safe_refresh_videos(non_blocking=True, timeout=0.1)
 
+    # tente de trouver l'index sans verrou bloquant
+    idx = -1
+    if _acquire(videos_lock, 0.1):
+        try:
+            if video_name in videos:
+                idx = videos.index(video_name)
+        finally:
+            videos_lock.release()
+    else:
+        # en dernier recours, on compare au snapshot courant
+        cnt, cur = get_snapshot()
+        # si le nom demandé correspond au courant snapshot, on l'assume
+        if cur == video_name:
+            idx = video_index  # best effort
+
+    if idx < 0:
+        app.logger.warning("Video not found (non-blocking): %s", video_name)
+        return jsonify(status="error", message="Video not found"), 404
+
+    video_index = idx
     if not set_media_by_index(video_index):
         return jsonify(status="error", message=f"Failed to set media: {_last_vlc_error}"), 500
 
@@ -277,54 +324,32 @@ def play_video():
 
 @app.route("/status")
 def status():
-    payload = {
-        "running": True,
-        "videos": None,
-        "volume": None,
-        "state": None,
-        "current": None,
-        "vlc_ready": (_player is not None),
-        "vlc_error": _last_vlc_error,
-    }
-
-    # Nombre de vidéos
+    # NE DOIT JAMAIS BLOQUER
+    cnt, cur = get_snapshot()
     try:
-        with videos_lock:
-            payload["videos"] = len(videos)
-            payload["current"] = get_current_video_name()
-    except Exception as e:
-        app.logger.exception("status: videos/count failed: %s", e)
-        payload["videos"] = 0
-
-    # Volume
-    try:
-        if _player is not None:
-            payload["volume"] = _player.audio_get_volume()
-    except Exception as e:
-        app.logger.warning("status: volume read failed: %s", e)
-        payload["volume"] = None
-
-    # Etat VLC
-    try:
-        payload["state"] = get_vlc_state_str()
-    except Exception as e:
-        app.logger.warning("status: state read failed: %s", e)
-        payload["state"] = "error"
-        payload["vlc_error"] = str(e)
-
+        vol = _player.audio_get_volume() if _player is not None else None
+    except Exception:
+        vol = None
+    payload = dict(
+        running=True,
+        videos=cnt,
+        volume=vol,
+        state=get_vlc_state_str(),
+        current=cur,
+        vlc_ready=(_player is not None),
+        vlc_error=_last_vlc_error,
+    )
     return jsonify(payload), 200
-
-# Petit endpoint de vie simple
-@app.route("/health")
-def health():
-    return jsonify(ok=True)
 
 @app.route("/status_min")
 def status_min():
-    with videos_lock:
-        count = len(videos)
-        current = videos[video_index] if (0 <= video_index < len(videos)) else None
-    return jsonify(ok=True, videos=count, current=current), 200
+    # NE DOIT JAMAIS BLOQUER
+    cnt, cur = get_snapshot()
+    return jsonify(ok=True, videos=cnt, current=cur), 200
+
+@app.route("/health")
+def health():
+    return jsonify(ok=True)
 
 # ==============================
 # Main
@@ -332,12 +357,8 @@ def status_min():
 if __name__ == "__main__":
     os.makedirs(VIDEO_DIR, exist_ok=True)
     os.makedirs(THUMB_DIR, exist_ok=True)
-
-    # On NE pré-initialise PAS VLC ici (lazy). On précharge juste la 1ère vidéo si dispo
-    safe_refresh_videos()
-    with videos_lock:
-        if videos:
-            video_index = 0
-
+    # précharge juste l'index (pas de VLC ici)
+    safe_refresh_videos(non_blocking=False)
+    if videos:
+        video_index = 0
     app.run(host="0.0.0.0", port=5000)
-
