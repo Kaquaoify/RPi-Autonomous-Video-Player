@@ -40,8 +40,8 @@ sudo apt update && sudo apt upgrade -y
 sudo apt autoremove -y
 
 # 2) Installer paquets système essentiels
-confirm "2) Installer paquets système (python3, venv, pip, vlc, ffmpeg, git, curl, unzip)"
-sudo apt install -y ${PYTHON_BIN} ${PIP_BIN} python3-venv vlc ffmpeg git curl unzip rclone
+confirm "2) Installer paquets système essentiels (python3, python3-venv, python3-pip, vlc, ffmpeg, git, curl, unzip, rclone)"
+sudo apt install -y python3 python3-venv python3-pip vlc ffmpeg git curl unzip rclone
 
 # 3) Cloner ou mettre à jour le dépôt
 if [ -d "${INSTALL_DIR}/.git" ]; then
@@ -59,7 +59,6 @@ fi
 confirm "4) Créer le dossier vidéos et thumbnails (${VIDEO_DIR})"
 mkdir -p "${VIDEO_DIR}"
 mkdir -p "${THUMB_DIR}"
-# s'assure que l'utilisateur courant possède les dossiers
 sudo chown -R "${USER}:${USER}" "${VIDEO_DIR}" "${THUMB_DIR}" "${INSTALL_DIR}"
 
 # 5) Créer virtualenv Python
@@ -68,8 +67,6 @@ ${PYTHON_BIN} -m venv "${VENV_DIR}"
 
 # 6) Installer dépendances Python dans le venv
 confirm "6) Installer les dépendances Python depuis ${INSTALL_DIR}/requirements.txt (si présent)"
-# activer venv et installer
-# shellcheck source=/dev/null
 source "${VENV_DIR}/bin/activate"
 pip install --upgrade pip setuptools wheel
 
@@ -108,7 +105,6 @@ After=network-online.target
 Type=simple
 User=${USER}
 WorkingDirectory=${INSTALL_DIR}
-# Utiliser le python du virtualenv
 ExecStart=${VENV_DIR}/bin/python ${INSTALL_DIR}/app/web.py
 Restart=always
 RestartSec=3
@@ -130,10 +126,3 @@ echo "Service systemd: ${SERVICE_NAME}"
 echo "Pour voir le statut : sudo systemctl status ${SERVICE_NAME}"
 echo "Logs (journal) : sudo journalctl -u ${SERVICE_NAME} -f"
 echo "Interface accessible sur : http://$(hostname -I | awk '{print $1}'):5000"
-echo
-echo "Remarques :"
-echo "- Ce script installe les paquets système et crée un venv. La configuration 'Première installation' (rclone / Drive) se fera depuis l'interface Flask."
-echo "- Si vous exécutez ce script via SSH, téléchargez-le d'abord :"
-echo "    curl -O https://raw.githubusercontent.com/${GIT_USER}/${APP_NAME}/main/install.sh"
-echo "    bash install.sh"
-echo "- Évitez : curl https://... | bash (le piping casse les prompts interactifs)."
