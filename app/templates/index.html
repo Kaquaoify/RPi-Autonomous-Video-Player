@@ -35,7 +35,7 @@
         {% set base = video.rsplit('.', 1)[0] %}
         <div class="video-item" data-name="{{ video }}">
           <div class="thumbnail">
-            <img src="{{ url_for('thumbnails', filename=base + '.png') }}" 
+            <img src="{{ url_for('thumbnails', filename=base ~ '.png') }}" 
                  alt="{{ video }}" 
                  class="video-thumb">
           </div>
