@@ -3,6 +3,8 @@ from flask import Flask, render_template, request, jsonify, send_from_directory
 import os
 import threading
 import time
+import subprocess, shutil, shlex
+
 
 # try to import vlc; if not installed, raise helpful error
 try:
@@ -196,6 +198,64 @@ def ensure_media_loaded():
         return set_media_by_index(max(0, min(video_index, len(videos) - 1))) if videos else False
     return True
 
+# ---------- rclone helpers ----------
+APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SETTINGS_PATH = os.path.join(APP_ROOT, "settings.json")
+RCLONE_LOG_DIR = os.path.join(USER_HOME, ".local", "share", "rpi-avp")
+RCLONE_LOG = os.path.join(RCLONE_LOG_DIR, "rclone_sync.log")
+os.makedirs(RCLONE_LOG_DIR, exist_ok=True)
+
+def load_settings():
+    try:
+        import json
+        if os.path.isfile(SETTINGS_PATH):
+            with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+                return json.load(f) or {}
+    except Exception as e:
+        app.logger.warning("load_settings error: %s", e)
+    return {}
+
+def save_settings(data: dict):
+    try:
+        import json
+        with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        app.logger.warning("save_settings error: %s", e)
+
+def get_setting(key, default=None):
+    return load_settings().get(key, default)
+
+def set_settings(**kwargs):
+    cfg = load_settings()
+    cfg.update(kwargs)
+    save_settings(cfg)
+
+def run_cmd(cmd_list, timeout=30, env=None):
+    """Run and capture stdout/stderr."""
+    try:
+        p = subprocess.run(cmd_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           timeout=timeout, text=True, env=env)
+        return p.returncode, p.stdout
+    except subprocess.TimeoutExpired:
+        return 124, f"Timeout: {' '.join(cmd_list)}"
+    except Exception as e:
+        return 1, f"Error: {type(e).__name__}: {e}"
+
+def which_rclone():
+    return shutil.which("rclone")
+
+def rclone_conf_path():
+    # ~/.config/rclone/rclone.conf
+    return os.path.join(USER_HOME, ".config", "rclone", "rclone.conf")
+
+def rclone_base_env():
+    env = os.environ.copy()
+    # make sure HOME is correct for non-interactive systemd
+    env["HOME"] = USER_HOME
+    return env
+
+
 # ==============================
 # Routes
 # ==============================
@@ -350,6 +410,135 @@ def status_min():
 @app.route("/health")
 def health():
     return jsonify(ok=True)
+
+# ---------- rclone: UI page ----------
+@app.route("/rclone")
+def rclone_page():
+    return render_template("rclone_setup.html")
+
+# ---------- rclone: API ----------
+@app.route("/api/rclone/check")
+def api_rclone_check():
+    rc = which_rclone()
+    info = {"which": rc, "version": None, "remotes": []}
+    if rc:
+        code, out = run_cmd([rc, "version"], timeout=10, env=rclone_base_env())
+        info["version"] = (out.splitlines()[0].strip() if out else None)
+        code2, out2 = run_cmd([rc, "listremotes"], timeout=10, env=rclone_base_env())
+        if out2:
+            info["remotes"] = [x.strip().rstrip(":") for x in out2.splitlines() if x.strip()]
+    return jsonify(info)
+
+@app.route("/api/rclone/install", methods=["POST"])
+def api_rclone_install():
+    # tentative auto (nécessite sudo sans mot de passe)
+    cmd = ["bash", "-lc", "curl -fsSL https://rclone.org/install.sh | sudo bash"]
+    code, out = run_cmd(cmd, timeout=120, env=rclone_base_env())
+    if code != 0:
+        return jsonify(message="Échec auto. Exécutez manuellement : curl -fsSL https://rclone.org/install.sh | sudo bash",
+                       output=out, code=code), 200
+    return jsonify(message="rclone installé/mis à jour.", output=out, code=code)
+
+@app.route("/api/rclone/settings", methods=["GET","POST"])
+def api_rclone_settings():
+    if request.method == "GET":
+        return jsonify({
+            "remote_name": get_setting("remote_name", "gdrive"),
+            "remote_folder": get_setting("remote_folder", "VideosRPi")
+        })
+    data = request.get_json() or {}
+    rn = (data.get("remote_name") or "gdrive").strip()
+    rf = (data.get("remote_folder") or "VideosRPi").strip()
+    set_settings(remote_name=rn, remote_folder=rf)
+    return jsonify(ok=True)
+
+@app.route("/api/rclone/config/create", methods=["POST"])
+def api_rclone_config_create():
+    """Création non-interactive d'un remote Drive via token JSON collé (rclone authorize)."""
+    if not which_rclone():
+        return jsonify(error="rclone non installé"), 400
+    data = request.get_json() or {}
+    rn = (data.get("remote_name") or "gdrive").strip()
+    scope = (data.get("drive_scope") or "drive").strip()
+    client_id = (data.get("client_id") or "").strip()
+    client_secret = (data.get("client_secret") or "").strip()
+    token = (data.get("token_json") or "").strip()
+    if not token:
+        return jsonify(error="Token JSON manquant (utilisez rclone authorize \"drive\")"), 400
+
+    # Prépare les arguments
+    args = ["config", "create", rn, "drive", f"scope={scope}", f"token={token}"]
+    if client_id:
+        args.append(f"client_id={client_id}")
+    if client_secret:
+        args.append(f"client_secret={client_secret}")
+
+    code, out = run_cmd([which_rclone()] + args, timeout=30, env=rclone_base_env())
+    if code != 0:
+        return jsonify(error="Échec création remote", output=out, code=code), 400
+
+    # Sauvegarde réglages si pas déjà faits
+    if not get_setting("remote_name"):
+        set_settings(remote_name=rn)
+    return jsonify(message=f"Remote '{rn}' créé/mis à jour.", output=out, code=code)
+
+@app.route("/api/rclone/config/test", methods=["POST"])
+def api_rclone_config_test():
+    if not which_rclone():
+        return jsonify(error="rclone non installé"), 400
+    data = request.get_json() or {}
+    rn = (data.get("remote_name") or get_setting("remote_name", "gdrive")).strip()
+    rf = (data.get("remote_folder") or get_setting("remote_folder", "VideosRPi")).strip()
+    target = f"{rn}:{rf}" if rf else f"{rn}:"
+    code, out = run_cmd([which_rclone(), "lsd", target], timeout=20, env=rclone_base_env())
+    if code != 0:
+        return jsonify(error=f"lsd {target} a échoué", output=out, code=code), 400
+    return jsonify(message=f"Connexion OK sur {target}", output=out, code=0)
+
+@app.route("/api/rclone/sync", methods=["POST"])
+def api_rclone_sync():
+    if not which_rclone():
+        return jsonify(error="rclone non installé"), 400
+    data = request.get_json() or {}
+    rn = (data.get("remote_name") or get_setting("remote_name", "gdrive")).strip()
+    rf = (data.get("remote_folder") or get_setting("remote_folder", "VideosRPi")).strip()
+    target = f"{rn}:{rf}" if rf else f"{rn}:"
+
+    def _run():
+        try:
+          with open(RCLONE_LOG, "a", encoding="utf-8") as fh:
+            fh.write(f"\n--- sync started {time.ctime()} ---\n")
+            cmd = [which_rclone(), "sync", target, VIDEO_DIR, "--delete-during", "--fast-list"]
+            p = subprocess.Popen(cmd, stdout=fh, stderr=subprocess.STDOUT, env=rclone_base_env())
+            p.communicate()
+            fh.write(f"--- sync finished {time.ctime()} exit={p.returncode} ---\n")
+        except Exception as e:
+            with open(RCLONE_LOG, "a", encoding="utf-8") as fh:
+                fh.write(f"ERROR: {type(e).__name__}: {e}\n")
+        # post-traitement: miniatures & refresh
+        try:
+            generate_thumbnails(VIDEO_DIR, THUMB_DIR, VLC_START_AT)
+            # refresh complet (peut prendre un peu de temps mais on est hors requête)
+            safe_refresh_videos(non_blocking=False)
+        except Exception as e:
+            app.logger.warning("post-sync error: %s", e)
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify(message=f"Sync démarrée depuis {target} → {VIDEO_DIR} (log: {RCLONE_LOG})")
+
+@app.route("/api/rclone/log")
+def api_rclone_log():
+    tail = int(request.args.get("tail", "200"))
+    if not os.path.isfile(RCLONE_LOG):
+        return "— (aucun log pour le moment)\n", 200, {"Content-Type":"text/plain; charset=utf-8"}
+    try:
+        with open(RCLONE_LOG, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        txt = "".join(lines[-tail:]) if tail > 0 else "".join(lines)
+        return txt, 200, {"Content-Type":"text/plain; charset=utf-8"}
+    except Exception as e:
+        return f"Erreur lecture log: {e}\n", 200, {"Content-Type":"text/plain; charset=utf-8"}
+
 
 # ==============================
 # Main
