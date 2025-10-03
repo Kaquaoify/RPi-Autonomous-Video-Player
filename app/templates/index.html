@@ -14,6 +14,23 @@
       <button id="btn-settings" title="Paramètres">⚙</button>
     </div>
   </header>
+  <div id="status-bar" style="opacity:.8;padding:.4rem 1rem;font-size:.9rem">
+  <span id="s-title">🎬 —</span> · <span id="s-state">▶ —</span> · <span id="s-vol">🔊 —</span>
+</div>
+<script>
+  async function refreshStatus(){
+    try{
+      const r = await fetch('/status'); if(!r.ok) return;
+      const s = await r.json();
+      document.getElementById('s-title').textContent = `🎬 ${s.current ?? '—'}`;
+      document.getElementById('s-state').textContent = `▶ ${s.state ?? '—'}`;
+      document.getElementById('s-vol').textContent   = `🔊 ${s.volume ?? '—'}`;
+    }catch{}
+  }
+  refreshStatus();
+  setInterval(refreshStatus, 3000);
+</script>
+
 
   <main>
     <section class="video-container">
