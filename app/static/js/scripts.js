@@ -1,16 +1,26 @@
 // app/static/js/scripts.js
 
-// --- Constantes ---
+// ==============================
+// Constantes
+// ==============================
+
+// Délai max pour fetch (évite les requêtes bloquées)
 const FETCH_TIMEOUT_MS = 8000;
-// 1x1 PNG transparent (évite d'avoir un fichier placeholder sur le disque)
+
+// 1x1 PNG transparent (placeholder local, pas de fichier statique requis)
 const PLACEHOLDER_THUMB =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
 
-// --- Utils ---
+// ==============================
+// Utilitaires
+// ==============================
+
+// Log uniforme côté console (filtrable)
 function log(...args) {
   console.log("[RPi-AVP]", ...args);
 }
 
+// fetch avec timeout (AbortController)
 async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -24,6 +34,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS)
   }
 }
 
+// parse JSON sans casser le flux si la réponse n'est pas JSON
 async function parseJsonSafe(res) {
   try {
     return await res.json();
@@ -32,7 +43,11 @@ async function parseJsonSafe(res) {
   }
 }
 
-// --- API ---
+// ==============================
+// API: commandes VLC & lecture
+// ==============================
+
+// Envoi d'une action à /control/<action> (play/pause/next/prev/vol)
 async function sendAction(action) {
   try {
     const res = await fetchWithTimeout(`/control/${encodeURIComponent(action)}`, { method: "POST" });
@@ -48,6 +63,7 @@ async function sendAction(action) {
   }
 }
 
+// Demande de lecture d'une vidéo précise via /play-video
 async function playVideo(videoName) {
   log("[play-video] ->", videoName);
   try {
@@ -68,16 +84,19 @@ async function playVideo(videoName) {
   }
 }
 
-// --- DOM wiring ---
+// ==============================
+// Rattachement des handlers DOM
+// ==============================
+
 function attachClickHandlers() {
-  // Contrôles VLC
+  // Boutons de contrôle VLC
   document.querySelectorAll(".vlc-btn").forEach((btn) => {
     const action = btn.dataset.action;
     if (!action) return;
     btn.addEventListener("click", () => sendAction(action), { passive: true });
   });
 
-  // Explorateur vidéo (click sur la carte)
+  // Clic sur une carte vidéo → lecture
   document.querySelectorAll(".video-item").forEach((item) => {
     item.addEventListener(
       "click",
@@ -89,7 +108,7 @@ function attachClickHandlers() {
     );
   });
 
-  // Fallback pour images manquantes (pas de Jinja ici)
+  // Fallback pour miniatures cassées → 1x1 transparent
   document.querySelectorAll(".video-thumb").forEach((img) => {
     img.addEventListener("error", () => {
       if (img.dataset.fallbackApplied) return;
@@ -98,7 +117,7 @@ function attachClickHandlers() {
     });
   });
 
-  // Bouton paramètres
+  // Bouton d'accès à la page paramètres
   const btnSettings = document.getElementById("btn-settings");
   if (btnSettings) {
     btnSettings.addEventListener(
@@ -111,4 +130,5 @@ function attachClickHandlers() {
   }
 }
 
+// Init au chargement du DOM
 document.addEventListener("DOMContentLoaded", attachClickHandlers);

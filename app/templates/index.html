@@ -5,37 +5,47 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>RPi Autonomous Video Player</title>
+  <!-- Styles globaux -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+  <!-- En-tête : logo + accès paramètres -->
   <header>
     <div class="logo">RPi AVP</div>
     <div class="header-buttons">
       <button id="btn-settings" title="Paramètres">⚙</button>
     </div>
   </header>
-  <div id="status-bar" style="opacity:.8;padding:.4rem 1rem;font-size:.9rem">
-  <span id="s-title">🎬 —</span> · <span id="s-state">▶ —</span> · <span id="s-vol">🔊 —</span>
-</div>
-<script>
-  async function refreshStatus(){
-    try{
-      const r = await fetch('/status'); if(!r.ok) return;
-      const s = await r.json();
-      document.getElementById('s-title').textContent = `🎬 ${s.current ?? '—'}`;
-      document.getElementById('s-state').textContent = `▶ ${s.state ?? '—'}`;
-      document.getElementById('s-vol').textContent   = `🔊 ${s.volume ?? '—'}`;
-    }catch{}
-  }
-  refreshStatus();
-  setInterval(refreshStatus, 3000);
-</script>
 
+  <!-- Barre d’état : titre vidéo / état VLC / volume -->
+  <div id="status-bar" style="opacity:.8;padding:.4rem 1rem;font-size:.9rem">
+    <span id="s-title">🎬 —</span> · <span id="s-state">▶ —</span> · <span id="s-vol">🔊 —</span>
+  </div>
+
+  <!-- Polling léger de l’état VLC (toutes les 3s) -->
+  <script>
+    async function refreshStatus(){
+      try{
+        const r = await fetch('/status');
+        if(!r.ok) return;                 // si l’API ne répond pas, on ne casse pas l’UI
+        const s = await r.json();
+        document.getElementById('s-title').textContent = `🎬 ${s.current ?? '—'}`;
+        document.getElementById('s-state').textContent = `▶ ${s.state ?? '—'}`;
+        document.getElementById('s-vol').textContent   = `🔊 ${s.volume ?? '—'}`;
+      }catch{
+        // silence : on évite de spammer la console si le service redémarre
+      }
+    }
+    refreshStatus();
+    setInterval(refreshStatus, 3000);     // intervalle suffisant pour un retour fluide
+  </script>
 
   <main>
+    <!-- Bloc “lecteur” : zone HDMI factice + contrôles -->
     <section class="video-container">
       <div id="vlc-output">Vidéo (lecture sur HDMI)</div>
       <div class="vlc-controls">
+        <!-- data-action = action envoyée à /control/<action> -->
         <button class="vlc-btn" data-action="prev">⏮</button>
         <button class="vlc-btn" data-action="play">▶</button>
         <button class="vlc-btn" data-action="pause">⏸</button>
@@ -45,26 +55,34 @@
       </div>
     </section>
 
+    <!-- Explorateur : liste des vidéos disponibles -->
     <section class="video-explorer">
       <h2>Explorateur de vidéos</h2>
+
+      <!-- Grille de vignettes -->
       <div class="video-list" id="video-list">
         {% for video in videos %}
-        {% set base = video.rsplit('.', 1)[0] %}
-        <div class="video-item" data-name="{{ video }}">
-          <div class="thumbnail">
-            <img src="{{ url_for('thumbnails', filename=base ~ '.png') }}" 
-                 alt="{{ video }}" 
-                 class="video-thumb">
+          {# base = nom du fichier sans extension, pour la miniature .png #}
+          {% set base = video.rsplit('.', 1)[0] %}
+          <div class="video-item" data-name="{{ video }}">
+            <div class="thumbnail">
+              <!-- La miniature est servie par /thumbnails/<base>.png -->
+              <img
+                src="{{ url_for('thumbnails', filename=base ~ '.png') }}"
+                alt="{{ video }}"
+                class="video-thumb">
+            </div>
+            <div class="video-title">
+              <!-- Texte défilant si le titre dépasse la largeur -->
+              <div class="scrolling-text">{{ video }}</div>
+            </div>
           </div>
-          <div class="video-title">
-            <div class="scrolling-text">{{ video }}</div>
-          </div>
-        </div>
         {% endfor %}
       </div>
     </section>
   </main>
 
+  <!-- JS : handlers des boutons + lecture vidéo -->
   <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
 </body>
 </html>

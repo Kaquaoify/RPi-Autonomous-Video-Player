@@ -1,41 +1,57 @@
+<!-- app/templates/settings.html -->
 <!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Paramètres · RPi Autonomous Video Player</title>
+  <!-- Styles globaux -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+  <!-- En-tête : logo + icône paramètres (inactive ici pour cohérence visuelle) -->
   <header>
     <div class="logo">RPi AVP</div>
     <div class="header-buttons">
-      <!-- On laisse l’icône pour cohérence visuelle, mais elle ne fait rien ici -->
+      <!-- Bouton désactivé : on est déjà sur la page paramètres -->
       <button id="btn-settings" title="Paramètres" disabled>⚙</button>
     </div>
   </header>
 
   <main>
+    <!-- Conteneur principal des actions de configuration -->
     <section class="settings-container">
       <h2>Paramètres</h2>
 
+      <!-- Grille de boutons d’actions (certains placeholders) -->
       <div class="settings-actions">
+        <!-- Placeholder : rafraîchira la liste de vidéos (wip) -->
         <button type="button" class="action-btn" id="btn-refresh-videos">Mise à jour des vidéos</button>
+
+        <!-- Placeholder : redémarrage du système (wip) -->
         <button type="button" class="action-btn" id="btn-reboot">Redémarrage du système</button>
-        <button type="button" class="action-btn" id="btn-initial-setup" onclick="location.href='/rclone'">Configuration initiale</button>
+
+        <!-- Actif : ouvre l’assistant de configuration rclone -->
+        <button type="button" class="action-btn" id="btn-initial-setup" onclick="location.href='/rclone'">
+          Configuration initiale
+        </button>
+
+        <!-- Retour vers la page d’accueil -->
         <button type="button" class="action-btn action-secondary" id="btn-back">Retour</button>
       </div>
 
+      <!-- Note d’état : précisera quand les actions placeholders seront branchées -->
       <p class="settings-note">
-        Ces actions sont des placeholders pour valider le design. Aucune commande n’est exécutée pour le moment.
+        Certaines actions sont des placeholders pour valider le design. Aucune commande critique n’est exécutée pour le moment.
       </p>
     </section>
   </main>
 
+  <!-- JS minimal : navigation “Retour” -->
   <script>
-    // Navigation simple pour “Retour”
+    // Bouton “Retour” → revient à l’accueil
     const back = document.getElementById('btn-back');
-    back?.addEventListener('click', () => { window.location.href = '/'; });
+    back && back.addEventListener('click', () => { window.location.href = '/'; });
   </script>
 </body>
 </html>

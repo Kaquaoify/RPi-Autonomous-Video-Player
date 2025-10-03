@@ -1,4 +1,6 @@
-/* app/static/css/style.css */
+/* ==============================
+   Thème (variables globales)
+   ============================== */
 :root{
   --bg:#121212;
   --panel:#1f1f1f;
@@ -7,14 +9,21 @@
   --accent:#3a3a3a;
 }
 
-*{box-sizing:border-box}
+/* ==============================
+   Base / Reset léger
+   ============================== */
+*{ box-sizing:border-box; }
+
 body{
   margin:0;
-  font-family: "Segoe UI", Roboto, Arial, sans-serif;
+  font-family:"Segoe UI", Roboto, Arial, sans-serif;
   background:var(--bg);
   color:var(--text);
 }
 
+/* ==============================
+   Header (barre du haut)
+   ============================== */
 header{
   display:flex;
   justify-content:space-between;
@@ -23,13 +32,28 @@ header{
   background:var(--panel);
 }
 
-.logo{font-weight:600; font-size:1.2rem}
+.logo{ font-weight:600; font-size:1.2rem; }
+
 .header-buttons button{
-  background:none;border:0;color:var(--text);font-size:1.2rem;cursor:pointer
+  background:none;
+  border:0;
+  color:var(--text);
+  font-size:1.2rem;
+  cursor:pointer;
 }
 
-main{padding:18px; max-width:1200px; margin:0 auto}
+/* ==============================
+   Contenu principal
+   ============================== */
+main{
+  padding:18px;
+  max-width:1200px;
+  margin:0 auto;
+}
 
+/* ==============================
+   Bloc lecteur vidéo (container)
+   ============================== */
 .video-container{
   background:var(--panel);
   border-radius:10px;
@@ -41,6 +65,7 @@ main{padding:18px; max-width:1200px; margin:0 auto}
   margin-bottom:18px;
 }
 
+/* Placeholder vidéo (sortie HDMI réelle côté RPi) */
 #vlc-output{
   width:100%;
   height:340px;
@@ -53,7 +78,11 @@ main{padding:18px; max-width:1200px; margin:0 auto}
   font-size:0.95rem;
 }
 
-.vlc-controls{display:flex;gap:8px}
+/* ==============================
+   Contrôles VLC (play/pause/etc.)
+   ============================== */
+.vlc-controls{ display:flex; gap:8px; }
+
 .vlc-controls button{
   background:var(--accent);
   border:0;
@@ -62,11 +91,25 @@ main{padding:18px; max-width:1200px; margin:0 auto}
   border-radius:6px;
   cursor:pointer;
 }
-.vlc-controls button:hover{background:#4a4a4a}
 
-/* explorer */
-.video-explorer{background:var(--panel); padding:12px; border-radius:10px}
-.video-list{display:flex;flex-wrap:wrap;gap:12px}
+.vlc-controls button:hover{ background:#4a4a4a; }
+
+/* ==============================
+   Explorateur de vidéos (grille)
+   ============================== */
+.video-explorer{
+  background:var(--panel);
+  padding:12px;
+  border-radius:10px;
+}
+
+.video-list{
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+}
+
+/* Carte vidéo (vignette + titre) */
 .video-item{
   width:150px;
   background:var(--muted);
@@ -74,62 +117,93 @@ main{padding:18px; max-width:1200px; margin:0 auto}
   padding:6px;
   text-align:center;
   cursor:pointer;
-  transition:transform .12s ease, box-shadow .12s;
+  transition:transform .12s ease, box-shadow .12s ease;
 }
-.video-item:hover{transform:translateY(-4px); box-shadow:0 6px 18px rgba(0,0,0,.6)}
-.thumbnail img{width:100%; height:auto; border-radius:6px; display:block}
-.video-title{margin-top:6px; overflow:hidden; white-space:nowrap}
 
-/* scrolling text: only active when content exceeds width */
-.scrolling-text{display:inline-block;padding-left:100%; animation:scroll-text 8s linear infinite}
-@keyframes scroll-text{0%{transform:translateX(0%)}100%{transform:translateX(-100%)}}
+.video-item:hover{
+  transform:translateY(-4px);
+  box-shadow:0 6px 18px rgba(0,0,0,.6);
+}
 
-/* small screens */
+.thumbnail img{
+  width:100%;
+  height:auto;
+  border-radius:6px;
+  display:block;
+}
+
+.video-title{
+  margin-top:6px;
+  overflow:hidden;
+  white-space:nowrap;
+}
+
+/* ==============================
+   Titre défilant (si trop long)
+   ============================== */
+.scrolling-text{
+  display:inline-block;
+  padding-left:100%;
+  animation:scroll-text 8s linear infinite;
+}
+
+@keyframes scroll-text{
+  0%{ transform:translateX(0%); }
+  100%{ transform:translateX(-100%); }
+}
+
+/* ==============================
+   Responsive (petits écrans)
+   ============================== */
 @media(max-width:700px){
-  #vlc-output{height:220px}
-  .video-item{width:45%}
+  #vlc-output{ height:220px; }
+  .video-item{ width:45%; }
 }
 
-/* --- Settings page --- */
-.settings-container {
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 1rem;
+/* ==============================
+   Page Paramètres (Settings)
+   ============================== */
+.settings-container{
+  max-width:1000px;
+  margin:0 auto;
+  padding:1rem;
 }
 
-.settings-container h2 {
-  margin: 0 0 1rem 0;
-  font-size: 1.25rem;
+.settings-container h2{
+  margin:0 0 1rem 0;
+  font-size:1.25rem;
 }
 
-.settings-actions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1rem;
-  margin: 1rem 0 1.25rem 0;
+/* Grille des actions (boutons) */
+.settings-actions{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
+  gap:1rem;
+  margin:1rem 0 1.25rem 0;
 }
 
-.action-btn {
-  display: inline-block;
-  width: 100%;
-  padding: 0.9rem 1rem;
-  border: none;
-  border-radius: 10px;
-  background: #2b2b2b;
-  color: #fff;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: transform .05s ease, opacity .15s ease;
+/* Bouton d'action principal */
+.action-btn{
+  display:inline-block;
+  width:100%;
+  padding:0.9rem 1rem;
+  border:none;
+  border-radius:10px;
+  background:#2b2b2b;
+  color:#fff;
+  font-size:1rem;
+  cursor:pointer;
+  transition:transform .05s ease, opacity .15s ease;
 }
 
-.action-btn:hover { opacity: .9; }
-.action-btn:active { transform: translateY(1px); }
+.action-btn:hover{ opacity:.9; }
+.action-btn:active{ transform:translateY(1px); }
 
-.action-secondary {
-  background: #3a3a3a;
-}
+/* Variante secondaire (couleur) */
+.action-secondary{ background:#3a3a3a; }
 
-.settings-note {
-  opacity: .75;
-  font-size: .95rem;
+/* Note/texte d’aide */
+.settings-note{
+  opacity:.75;
+  font-size:.95rem;
 }

@@ -1,10 +1,15 @@
+<!-- app/templates/rclone_setup.html -->
 <!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Configurer rclone · RPi AVP</title>
+
+  <!-- Styles globaux -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+  <!-- Styles locaux à la page rclone (layout simple) -->
   <style>
     .container { max-width: 1000px; margin: 0 auto; padding: 1rem; }
     .grid { display:grid; gap:1rem; }
@@ -30,6 +35,7 @@
   </style>
 </head>
 <body>
+  <!-- En-tête : logo + retour paramètres -->
   <header>
     <div class="logo">RPi AVP</div>
     <div class="header-buttons">
@@ -38,7 +44,7 @@
   </header>
 
   <main class="container grid">
-    <!-- ÉTAPE 0 — État -->
+    <!-- ÉTAPE 0 — État rclone : version, chemin, remotes -->
     <section class="card">
       <h2>État rclone</h2>
       <div class="row">
@@ -65,7 +71,7 @@
       </p>
     </section>
 
-    <!-- ÉTAPE 1 — Réglages -->
+    <!-- ÉTAPE 1 — Réglages utilisés par test/sync -->
     <section class="card">
       <h2>Réglages</h2>
       <div class="row">
@@ -84,7 +90,7 @@
       <p class="muted">Ces valeurs sont stockées dans <span class="mono">settings.json</span> et utilisées pour “Tester” et “Synchroniser”.</p>
     </section>
 
-    <!-- ÉTAPE 2 — Créer remote Google Drive -->
+    <!-- ÉTAPE 2 — Création/MàJ du remote Drive en collant le token -->
     <section class="card">
       <h2>Créer un remote Google Drive (OAuth)</h2>
       <ol class="muted">
@@ -123,79 +129,80 @@
       <div id="create-remote-status" class="muted" style="margin-top:.5rem"></div>
     </section>
 
-    <!-- AIDE RAPIDE : Générer le token via rclone authorize "drive" -->
-<section class="card" id="help-rclone-authorize">
-  <h2>Aide rapide · Générer le token avec rclone</h2>
+    <!-- AIDE RAPIDE — Téléchargement rclone + commandes par OS -->
+    <section class="card" id="help-rclone-authorize">
+      <h2>Aide rapide · Générer le token avec rclone</h2>
 
-  <p class="muted" style="margin-top:-.25rem">
-    Pas besoin d’installer rclone “système” sur votre appareil : il suffit de télécharger le binaire, lancer une commande, 
-    puis <b>copier le JSON</b> affiché et le <b>coller dans “Token JSON” ci-dessus</b>.
-  </p>
+      <p class="muted" style="margin-top:-.25rem">
+        Pas besoin d’installer rclone “système” sur votre appareil : téléchargez le binaire, lancez la commande, 
+        puis <b>copiez le JSON</b> affiché et <b>collez-le dans “Token JSON”</b> ci-dessus.
+      </p>
 
-  <div class="row" style="margin:.75rem 0">
-    <a class="btn" href="https://rclone.org/downloads/" target="_blank" rel="noopener">Télécharger rclone</a>
-    <button id="btn-copy-authorize" class="btn secondary" type="button">Copier la commande : <span class="mono">rclone authorize "drive"</span></button>
-  </div>
+      <div class="row" style="margin:.75rem 0">
+        <a class="btn" href="https://rclone.org/downloads/" target="_blank" rel="noopener">Télécharger rclone</a>
+        <button id="btn-copy-authorize" class="btn secondary" type="button">
+          Copier la commande : <span class="mono">rclone authorize "drive"</span>
+        </button>
+      </div>
 
-  <details style="margin-top:.5rem">
-    <summary style="cursor:pointer">Windows (recommandé) — étapes détaillées</summary>
-    <ol class="muted" style="margin:.5rem 0 0">
-      <li>Téléchargez l’archive Windows sur la page “Télécharger rclone”.</li>
-      <li>Dézippez le dossier (ex. sur le Bureau).</li>
-      <li>Dans ce dossier, <b>Maj + clic droit</b> → “Ouvrir dans PowerShell ici”.</li>
-      <li>Exécutez :
-        <pre class="log mono">.\rclone.exe authorize "drive"</pre>
-      </li>
-      <li>Un onglet Google s’ouvre → connectez-vous et autorisez.</li>
-      <li>Copiez le JSON affiché dans PowerShell, puis <b>collez-le</b> dans la zone <i>Token JSON</i> de cette page et cliquez <i>Créer / Mettre à jour le remote</i>.</li>
-    </ol>
-  </details>
+      <details style="margin-top:.5rem">
+        <summary style="cursor:pointer">Windows (recommandé) — étapes détaillées</summary>
+        <ol class="muted" style="margin:.5rem 0 0">
+          <li>Téléchargez l’archive Windows sur la page “Télécharger rclone”.</li>
+          <li>Dézippez le dossier (ex. sur le Bureau).</li>
+          <li>Dans ce dossier, <b>Maj + clic droit</b> → “Ouvrir dans PowerShell ici”.</li>
+          <li>Exécutez :
+            <pre class="log mono">.\rclone.exe authorize "drive"</pre>
+          </li>
+          <li>Un onglet Google s’ouvre → connectez-vous et autorisez.</li>
+          <li>Copiez le JSON affiché, puis <b>collez-le</b> dans <i>Token JSON</i> et cliquez <i>Créer / Mettre à jour le remote</i>.</li>
+        </ol>
+      </details>
 
-  <details style="margin-top:.5rem">
-    <summary style="cursor:pointer">macOS — étapes détaillées</summary>
-    <ol class="muted" style="margin:.5rem 0 0">
-      <li><b>Avec Homebrew</b> : <code class="mono">brew install rclone</code> puis :
-        <pre class="log mono">rclone authorize "drive"</pre>
-      </li>
-      <li><b>Ou en portable</b> : téléchargez l’archive macOS, dézippez, puis dans Terminal :
-        <pre class="log mono">./rclone authorize "drive"</pre>
-      </li>
-      <li>Copiez le JSON et collez-le ici, puis cliquez <i>Créer / Mettre à jour le remote</i>.</li>
-    </ol>
-  </details>
+      <details style="margin-top:.5rem">
+        <summary style="cursor:pointer">macOS — étapes détaillées</summary>
+        <ol class="muted" style="margin:.5rem 0 0">
+          <li><b>Avec Homebrew</b> : <code class="mono">brew install rclone</code> puis :
+            <pre class="log mono">rclone authorize "drive"</pre>
+          </li>
+          <li><b>Ou portable</b> : téléchargez l’archive, dézippez, puis dans Terminal :
+            <pre class="log mono">./rclone authorize "drive"</pre>
+          </li>
+          <li>Copiez le JSON et collez-le ici, puis cliquez <i>Créer / Mettre à jour le remote</i>.</li>
+        </ol>
+      </details>
 
-  <details style="margin-top:.5rem">
-    <summary style="cursor:pointer">Linux — étapes détaillées</summary>
-    <ol class="muted" style="margin:.5rem 0 0">
-      <li><b>Rapide</b> : 
-        <pre class="log mono">curl -fsSL https://rclone.org/install.sh | sudo bash</pre>
-      </li>
-      <li>Puis :
-        <pre class="log mono">rclone authorize "drive"</pre>
-      </li>
-      <li>Copiez le JSON et collez-le ici, puis cliquez <i>Créer / Mettre à jour le remote</i>.</li>
-    </ol>
-  </details>
+      <details style="margin-top:.5rem">
+        <summary style="cursor:pointer">Linux — étapes détaillées</summary>
+        <ol class="muted" style="margin:.5rem 0 0">
+          <li><b>Rapide</b> : 
+            <pre class="log mono">curl -fsSL https://rclone.org/install.sh | sudo bash</pre>
+          </li>
+          <li>Puis :
+            <pre class="log mono">rclone authorize "drive"</pre>
+          </li>
+          <li>Copiez le JSON et collez-le ici, puis cliquez <i>Créer / Mettre à jour le remote</i>.</li>
+        </ol>
+      </details>
 
-  <details style="margin-top:.5rem">
-    <summary style="cursor:pointer">Android (optionnel)</summary>
-    <ol class="muted" style="margin:.5rem 0 0">
-      <li>Installez <b>Termux</b> → <code class="mono">pkg update && pkg install rclone</code></li>
-      <li>Exécutez :
-        <pre class="log mono">rclone authorize "drive"</pre>
-      </li>
-      <li>Copiez le JSON et collez-le ici, puis cliquez <i>Créer / Mettre à jour le remote</i>.</li>
-    </ol>
-  </details>
+      <details style="margin-top:.5rem">
+        <summary style="cursor:pointer">Android (optionnel)</summary>
+        <ol class="muted" style="margin:.5rem 0 0">
+          <li>Installez <b>Termux</b> → <code class="mono">pkg update && pkg install rclone</code></li>
+          <li>Exécutez :
+            <pre class="log mono">rclone authorize "drive"</pre>
+          </li>
+          <li>Copiez le JSON et collez-le ici, puis cliquez <i>Créer / Mettre à jour le remote</i>.</li>
+        </ol>
+      </details>
 
-  <p class="muted" style="margin-top:.75rem">
-    <b>Note sécurité</b> : le JSON contient un <i>refresh_token</i>. Conservez-le privé. 
-    Vous pouvez révoquer l’accès depuis <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>.
-  </p>
-</section>
+      <p class="muted" style="margin-top:.75rem">
+        <b>Note sécurité</b> : le JSON contient un <i>refresh_token</i>. Gardez-le privé. 
+        Vous pouvez révoquer l’accès depuis <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>.
+      </p>
+    </section>
 
-
-    <!-- ÉTAPE 3 — Tester & Synchroniser -->
+    <!-- ÉTAPE 3 — Tests et synchronisation -->
     <section class="card">
       <h2>Tester & synchroniser</h2>
       <div class="row">
@@ -208,13 +215,19 @@
     </section>
   </main>
 
+  <!-- Script de page : appels API + wiring des boutons -->
   <script>
+    // Raccourcis DOM
     const el = (id)=>document.getElementById(id);
     const out = el('output');
 
+    // Affiche du texte (remplace) dans la zone log
     function show(text){ out.textContent = text; }
+
+    // Ajoute une ligne dans la zone log
     function append(text){ out.textContent += (out.textContent ? "\n" : "") + text; }
 
+    // Appel API générique (JSON ou texte brut)
     async function api(path, opts={}){
       const r = await fetch(path, opts);
       const ct = r.headers.get('content-type')||'';
@@ -223,19 +236,21 @@
       return r.text();
     }
 
+    // Récupère état rclone et charge settings
     async function refresh(){
       const s = await api('/api/rclone/check');
       el('rc-version').textContent = s.version || '—';
       el('rc-path').textContent = s.which || '—';
       el('rc-remotes').textContent = (s.remotes && s.remotes.length) ? s.remotes.join(', ') : '—';
-      // charger réglages
       const cfg = await api('/api/rclone/settings');
       el('remote-name').value = cfg.remote_name || 'gdrive';
       el('remote-folder').value = cfg.remote_folder || 'VideosRPi';
     }
 
-    // Actions
+    // Bouton: rafraîchir l'état
     el('btn-refresh').onclick = refresh;
+
+    // Bouton: installer/mettre à jour rclone
     el('btn-install').onclick = async ()=>{
       show("Installation en cours...");
       try{
@@ -245,31 +260,31 @@
       }catch(e){ show("Erreur installation: " + e.message); }
     };
 
-      el('btn-delete-remote').onclick = async ()=>{
-    const rn = (el('remote-name').value.trim() || 'gdrive');
-    if(!confirm(`Supprimer le remote "${rn}" ?\n(Cela ne supprime pas tes fichiers, seulement la configuration rclone)`)) return;
-    show(`Suppression du remote "${rn}"...`);
-    try{
-      const res = await api('/api/rclone/config/delete', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ remote_name: rn })
-      });
-      append(res.message || "Remote supprimé.");
-      // On efface le champ côté UI si c'était celui des réglages
-      await refresh();
-    }catch(e){
-      append("Erreur: " + e.message);
-    }
-  };
+    // Bouton: supprimer un remote (unlink)
+    el('btn-delete-remote').onclick = async ()=>{
+      const rn = (el('remote-name').value.trim() || 'gdrive');
+      if(!confirm(`Supprimer le remote "${rn}" ?\n(Cela ne supprime pas vos fichiers, seulement la configuration rclone)`)) return;
+      show(`Suppression du remote "${rn}"...`);
+      try{
+        const res = await api('/api/rclone/config/delete', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ remote_name: rn })
+        });
+        append(res.message || "Remote supprimé.");
+        await refresh();
+      }catch(e){
+        append("Erreur: " + e.message);
+      }
+    };
 
-
+    // Bouton: sauvegarder réglages de base (remote, dossier)
     el('btn-save-settings').onclick = async ()=>{
       try{
         const body = {
           remote_name: el('remote-name').value.trim(),
           remote_folder: el('remote-folder').value.trim()
         };
-        const res = await api('/api/rclone/settings', {
+        await api('/api/rclone/settings', {
           method:'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify(body)
         });
@@ -277,6 +292,7 @@
       }catch(e){ show("Erreur: " + e.message); }
     };
 
+    // Bouton: créer/mettre à jour le remote à partir du token JSON
     el('btn-create-remote').onclick = async ()=>{
       show("Création/mise à jour du remote...");
       try{
@@ -299,6 +315,7 @@
       }
     };
 
+    // Bouton: lister les remotes (lecture seule)
     el('btn-list-remotes').onclick = async ()=>{
       try{
         const res = await api('/api/rclone/check');
@@ -306,6 +323,7 @@
       }catch(e){ append("Erreur: " + e.message); }
     };
 
+    // Bouton: tester la connexion (lsd du dossier choisi)
     el('btn-test-list').onclick = async ()=>{
       show("Test de connexion (lsd)...");
       try{
@@ -319,6 +337,7 @@
       }catch(e){ append("Erreur: " + e.message); }
     };
 
+    // Bouton: lancer la synchronisation Drive → Pi
     el('btn-sync').onclick = async ()=>{
       show("Sync démarrée...");
       try{
@@ -332,6 +351,7 @@
       }catch(e){ append("Erreur: " + e.message); }
     };
 
+    // Bouton: afficher la fin du log rclone (tail)
     el('btn-log').onclick = async ()=>{
       try{
         const txt = await api('/api/rclone/log?tail=200');
@@ -339,27 +359,25 @@
       }catch(e){ append("Erreur: " + e.message); }
     };
 
+    // Bouton: retour vers /settings
     el('btn-back').onclick = ()=>{ window.location.href = "/settings"; };
 
+    // Bouton "Copier la commande rclone authorize"
+    (function(){
+      const btn = document.getElementById('btn-copy-authorize');
+      if(!btn) return;
+      btn.addEventListener('click', async ()=>{
+        try{
+          await navigator.clipboard.writeText('rclone authorize "drive"');
+          btn.textContent = 'Copié ✔  rclone authorize "drive"';
+          setTimeout(()=>{ btn.innerHTML = 'Copier la commande : <span class="mono">rclone authorize "drive"</span>'; }, 1600);
+        }catch(e){
+          alert('Impossible de copier automatiquement. Copiez manuellement : rclone authorize "drive"');
+        }
+      });
+    })();
 
-  // Bouton "Copier la commande"
-  (function(){
-    const btn = document.getElementById('btn-copy-authorize');
-    if(!btn) return;
-    btn.addEventListener('click', async ()=>{
-      try{
-        await navigator.clipboard.writeText('rclone authorize "drive"');
-        btn.textContent = 'Copié ✔  rclone authorize "drive"';
-        setTimeout(()=>{ btn.innerHTML = 'Copier la commande : <span class="mono">rclone authorize "drive"</span>'; }, 1600);
-      }catch(e){
-        alert('Impossible de copier automatiquement. Copiez manuellement : rclone authorize "drive"');
-      }
-    });
-  })();
-
-
-
-    // Go
+    // Initialisation de la page
     refresh().catch(console.error);
   </script>
 </body>
