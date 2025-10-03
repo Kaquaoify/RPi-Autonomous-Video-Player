@@ -1,0 +1,67 @@
+body {
+    margin: 0;
+    font-family: 'Segoe UI', sans-serif;
+    background-color: #121212;
+    color: #e0e0e0;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    background-color: #1f1f1f;
+}
+
+.logo {
+    font-size: 1.5em;
+    font-weight: bold;
+}
+
+.controls button {
+    margin: 0 5px;
+    background-color: #333;
+    border: none;
+    color: #e0e0e0;
+    padding: 8px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.controls button:hover {
+    background-color: #555;
+}
+
+main {
+    padding: 20px;
+}
+
+.video-output {
+    background-color: #1f1f1f;
+    height: 300px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-radius: 10px;
+}
+
+.video-explorer {
+    background-color: #1f1f1f;
+    padding: 10px;
+    border-radius: 10px;
+}
+
+.video-explorer ul {
+    list-style: none;
+    padding-left: 0;
+}
+
+.video-explorer li {
+    padding: 5px 0;
+    border-bottom: 1px solid #333;
+}
+
+.settings {
+    margin-top: 20px;
+}

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>RPi Autonomous Video Player</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header>
+        <div class="logo">RPi AVP</div>
+        <div class="controls">
+            <button onclick="sendAction('prev')">⏮</button>
+            <button onclick="sendAction('play')">▶️</button>
+            <button onclick="sendAction('pause')">⏸</button>
+            <button onclick="sendAction('next')">⏭</button>
+            <button onclick="sendAction('volup')">🔊+</button>
+            <button onclick="sendAction('voldown')">🔊-</button>
+        </div>
+    </header>
+
+    <main>
+        <section class="video-output">
+            <div id="vlc-output">Sortie VLC ici</div>
+        </section>
+
+        <section class="video-explorer">
+            <h2>Explorateur de vidéos</h2>
+            <ul>
+                {% for video in videos %}
+                <li>{{ video }}</li>
+                {% endfor %}
+            </ul>
+            <form action="{{ url_for('sync_videos') }}" method="post">
+                <button type="submit">Mettre à jour les vidéos depuis Google Drive</button>
+            </form>
+        </section>
+
+        <section class="settings">
+            <button id="btn-settings">Paramètres</button>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
+</body>
+</html>
