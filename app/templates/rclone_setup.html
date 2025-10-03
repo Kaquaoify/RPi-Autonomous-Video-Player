@@ -123,6 +123,78 @@
       <div id="create-remote-status" class="muted" style="margin-top:.5rem"></div>
     </section>
 
+    <!-- AIDE RAPIDE : Générer le token via rclone authorize "drive" -->
+<section class="card" id="help-rclone-authorize">
+  <h2>Aide rapide · Générer le token avec rclone</h2>
+
+  <p class="muted" style="margin-top:-.25rem">
+    Pas besoin d’installer rclone “système” sur votre appareil : il suffit de télécharger le binaire, lancer une commande, 
+    puis <b>copier le JSON</b> affiché et le <b>coller dans “Token JSON” ci-dessus</b>.
+  </p>
+
+  <div class="row" style="margin:.75rem 0">
+    <a class="btn" href="https://rclone.org/downloads/" target="_blank" rel="noopener">Télécharger rclone</a>
+    <button id="btn-copy-authorize" class="btn secondary" type="button">Copier la commande : <span class="mono">rclone authorize "drive"</span></button>
+  </div>
+
+  <details style="margin-top:.5rem">
+    <summary style="cursor:pointer">Windows (recommandé) — étapes détaillées</summary>
+    <ol class="muted" style="margin:.5rem 0 0">
+      <li>Téléchargez l’archive Windows sur la page “Télécharger rclone”.</li>
+      <li>Dézippez le dossier (ex. sur le Bureau).</li>
+      <li>Dans ce dossier, <b>Maj + clic droit</b> → “Ouvrir dans PowerShell ici”.</li>
+      <li>Exécutez :
+        <pre class="log mono">.\rclone.exe authorize "drive"</pre>
+      </li>
+      <li>Un onglet Google s’ouvre → connectez-vous et autorisez.</li>
+      <li>Copiez le JSON affiché dans PowerShell, puis <b>collez-le</b> dans la zone <i>Token JSON</i> de cette page et cliquez <i>Créer / Mettre à jour le remote</i>.</li>
+    </ol>
+  </details>
+
+  <details style="margin-top:.5rem">
+    <summary style="cursor:pointer">macOS — étapes détaillées</summary>
+    <ol class="muted" style="margin:.5rem 0 0">
+      <li><b>Avec Homebrew</b> : <code class="mono">brew install rclone</code> puis :
+        <pre class="log mono">rclone authorize "drive"</pre>
+      </li>
+      <li><b>Ou en portable</b> : téléchargez l’archive macOS, dézippez, puis dans Terminal :
+        <pre class="log mono">./rclone authorize "drive"</pre>
+      </li>
+      <li>Copiez le JSON et collez-le ici, puis cliquez <i>Créer / Mettre à jour le remote</i>.</li>
+    </ol>
+  </details>
+
+  <details style="margin-top:.5rem">
+    <summary style="cursor:pointer">Linux — étapes détaillées</summary>
+    <ol class="muted" style="margin:.5rem 0 0">
+      <li><b>Rapide</b> : 
+        <pre class="log mono">curl -fsSL https://rclone.org/install.sh | sudo bash</pre>
+      </li>
+      <li>Puis :
+        <pre class="log mono">rclone authorize "drive"</pre>
+      </li>
+      <li>Copiez le JSON et collez-le ici, puis cliquez <i>Créer / Mettre à jour le remote</i>.</li>
+    </ol>
+  </details>
+
+  <details style="margin-top:.5rem">
+    <summary style="cursor:pointer">Android (optionnel)</summary>
+    <ol class="muted" style="margin:.5rem 0 0">
+      <li>Installez <b>Termux</b> → <code class="mono">pkg update && pkg install rclone</code></li>
+      <li>Exécutez :
+        <pre class="log mono">rclone authorize "drive"</pre>
+      </li>
+      <li>Copiez le JSON et collez-le ici, puis cliquez <i>Créer / Mettre à jour le remote</i>.</li>
+    </ol>
+  </details>
+
+  <p class="muted" style="margin-top:.75rem">
+    <b>Note sécurité</b> : le JSON contient un <i>refresh_token</i>. Conservez-le privé. 
+    Vous pouvez révoquer l’accès depuis <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>.
+  </p>
+</section>
+
+
     <!-- ÉTAPE 3 — Tester & Synchroniser -->
     <section class="card">
       <h2>Tester & synchroniser</h2>
@@ -268,6 +340,24 @@
     };
 
     el('btn-back').onclick = ()=>{ window.location.href = "/settings"; };
+
+
+  // Bouton "Copier la commande"
+  (function(){
+    const btn = document.getElementById('btn-copy-authorize');
+    if(!btn) return;
+    btn.addEventListener('click', async ()=>{
+      try{
+        await navigator.clipboard.writeText('rclone authorize "drive"');
+        btn.textContent = 'Copié ✔  rclone authorize "drive"';
+        setTimeout(()=>{ btn.innerHTML = 'Copier la commande : <span class="mono">rclone authorize "drive"</span>'; }, 1600);
+      }catch(e){
+        alert('Impossible de copier automatiquement. Copiez manuellement : rclone authorize "drive"');
+      }
+    });
+  })();
+
+
 
     // Go
     refresh().catch(console.error);
