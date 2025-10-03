@@ -593,7 +593,7 @@ def api_rclone_config_delete():
     except Exception as e:
         app.logger.warning("unset remote_name failed: %s", e)
 
-    return jsonify(message=f"Remote '{rn}' supprimé.", output=out, code=code))
+    return jsonify(message=f"Remote '{rn}' supprimé.", output=out, code=code)
 
 @app.route("/api/rclone/log")
 def api_rclone_log():
