@@ -89,6 +89,7 @@ main {
     width: 150px;
     text-align: center;
     padding: 5px;
+    cursor: pointer;
 }
 
 .thumbnail img {
