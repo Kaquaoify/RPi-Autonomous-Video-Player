@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Paramètres · RPi Autonomous Video Player</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <header>
+    <div class="logo">RPi AVP</div>
+    <div class="header-buttons">
+      <!-- On laisse l’icône pour cohérence visuelle, mais elle ne fait rien ici -->
+      <button id="btn-settings" title="Paramètres" disabled>⚙</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="settings-container">
+      <h2>Paramètres</h2>
+
+      <div class="settings-actions">
+        <button type="button" class="action-btn" id="btn-refresh-videos">Mise à jour des vidéos</button>
+        <button type="button" class="action-btn" id="btn-reboot">Redémarrage du système</button>
+        <button type="button" class="action-btn" id="btn-initial-setup">Configuration initiale</button>
+        <button type="button" class="action-btn action-secondary" id="btn-back">Retour</button>
+      </div>
+
+      <p class="settings-note">
+        Ces actions sont des placeholders pour valider le design. Aucune commande n’est exécutée pour le moment.
+      </p>
+    </section>
+  </main>
+
+  <script>
+    // Navigation simple pour “Retour”
+    const back = document.getElementById('btn-back');
+    back?.addEventListener('click', () => { window.location.href = '/'; });
+  </script>
+</body>
+</html>

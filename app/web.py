@@ -2,8 +2,6 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory
 import os
 import threading
-import subprocess
-import time
 
 # try to import vlc; if not installed, raise helpful error
 try:
@@ -19,11 +17,8 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 # Configurables (change per RPi)
 # ==============================
 USER_HOME = os.path.expanduser("~")                   # home de l'utilisateur courant
-INSTALL_DIR = os.path.join(USER_HOME, "RPi-Autonomous-Video-Player")
 VIDEO_DIR = os.path.join(USER_HOME, "Videos", "RPi-Autonomous-Video-Player")
 THUMB_DIR = os.path.join(VIDEO_DIR, "thumbnails")
-REMOTE_NAME = "gdrive"                                # nom rclone remote
-REMOTE_FOLDER = "VideosRPi"                           # dossier sur Google Drive
 VLC_AUDIO_VOLUME_STEP = 10                            # incrément volume
 VLC_START_AT = 5                                      # seconde utilisée pour thumbnail capture
 
@@ -47,6 +42,7 @@ except Exception:
 # Helpers
 # ==============================
 def set_media_by_index(idx):
+    """Charge la vidéo d'index idx dans le MediaPlayer."""
     global _player, videos, VIDEO_DIR
     if not videos:
         return False
@@ -57,6 +53,7 @@ def set_media_by_index(idx):
     return True
 
 def safe_refresh_videos():
+    """Recharge la liste des vidéos (thread-safe)."""
     global videos
     with videos_lock:
         videos = refresh_videos_list(VIDEO_DIR)
@@ -77,6 +74,10 @@ def index():
         vlist = list(videos)
     return render_template("index.html", videos=vlist)
 
+@app.route("/settings")
+def settings_page():
+    return render_template("settings.html")
+
 @app.route("/thumbnails/<filename>")
 def thumbnails(filename):
     # Serve thumbnail file if exists; else return 404
@@ -90,6 +91,7 @@ def control(action):
     action = action.lower()
     with videos_lock:
         count = len(videos)
+
     if action == "play":
         _player.play()
     elif action == "pause":
@@ -138,29 +140,10 @@ def play_video():
         if video_name not in videos:
             return jsonify(status="error", message="Video not found"), 404
         video_index = videos.index(video_name)
+
     set_media_by_index(video_index)
     _player.play()
     return jsonify(status="playing", video=video_name)
-
-@app.route("/sync", methods=["POST"])
-def sync_videos():
-    """
-    Trigger rclone sync in background and regenerate thumbnails afterwards.
-    """
-    def run_sync():
-        cmd = ["rclone", "sync", f"{REMOTE_NAME}:{REMOTE_FOLDER}", VIDEO_DIR, "--delete-during"]
-        # run process and capture output to log file
-        with open(os.path.join(INSTALL_DIR, "rclone_sync.log"), "a") as fh:
-            fh.write(f"\n--- sync started {time.ctime()} ---\n")
-            proc = subprocess.Popen(cmd, stdout=fh, stderr=subprocess.STDOUT)
-            proc.communicate()
-            fh.write(f"--- sync finished {time.ctime()} exit={proc.returncode} ---\n")
-        # regenerate thumbnails and refresh list
-        generate_thumbnails(VIDEO_DIR, THUMB_DIR, VLC_START_AT)
-        safe_refresh_videos()
-
-    threading.Thread(target=run_sync, daemon=True).start()
-    return jsonify(status="started")
 
 # simple status endpoint
 @app.route("/status")

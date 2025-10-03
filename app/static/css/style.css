@@ -89,3 +89,47 @@ main{padding:18px; max-width:1200px; margin:0 auto}
   #vlc-output{height:220px}
   .video-item{width:45%}
 }
+
+/* --- Settings page --- */
+.settings-container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.settings-container h2 {
+  margin: 0 0 1rem 0;
+  font-size: 1.25rem;
+}
+
+.settings-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0 1.25rem 0;
+}
+
+.action-btn {
+  display: inline-block;
+  width: 100%;
+  padding: 0.9rem 1rem;
+  border: none;
+  border-radius: 10px;
+  background: #2b2b2b;
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: transform .05s ease, opacity .15s ease;
+}
+
+.action-btn:hover { opacity: .9; }
+.action-btn:active { transform: translateY(1px); }
+
+.action-secondary {
+  background: #3a3a3a;
+}
+
+.settings-note {
+  opacity: .75;
+  font-size: .95rem;
+}
