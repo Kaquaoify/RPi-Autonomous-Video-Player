@@ -255,6 +255,45 @@ def rclone_base_env():
     env["HOME"] = USER_HOME
     return env
 
+def remove_remote_in_conf(remote_name: str):
+    """Supprime la section [remote_name] dans ~/.config/rclone/rclone.conf (avec backup)."""
+    path = rclone_conf_path()
+    if not os.path.isfile(path):
+        return False, "rclone.conf introuvable"
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        header = f"[{remote_name}]"
+        new_lines = []
+        in_section = False
+
+        for line in lines:
+            stripped = line.strip()
+            # début d'une section ?
+            if stripped.startswith("[") and stripped.endswith("]"):
+                # si on rencontre une autre section, on quitte la section à supprimer
+                in_section = (stripped == header)
+                # on skip la ligne d'en-tête si c'est la section ciblée
+                if in_section:
+                    continue
+            # si on n'est pas dans la section ciblée, on garde la ligne
+            if not in_section:
+                new_lines.append(line)
+
+        if len(new_lines) == len(lines):
+            return False, f"Remote '{remote_name}' non trouvé dans rclone.conf"
+
+        backup = path + ".bak"
+        shutil.copy(path, backup)
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+        return True, f"Section supprimée dans rclone.conf (backup: {backup})"
+    except Exception as e:
+        return False, f"Erreur édition conf: {type(e).__name__}: {e}"
+
+
 
 # ==============================
 # Routes
@@ -578,11 +617,18 @@ def api_rclone_config_delete():
             save_settings(cfg)
         return jsonify(message=f"Remote '{rn}' inexistant (déjà supprimé).", code=0)
 
-    # Supprimer en non-interactif
-    cmd = [rc, "config", "delete", rn, "--non-interactive", "--auto-confirm"]
-    code, out = run_cmd(cmd, timeout=60, env=rclone_base_env())
+    # Tentative standard (sans flags non supportés)
+    code, out = run_cmd([rc, "config", "delete", rn], timeout=60, env=rclone_base_env())
     if code != 0:
-        return jsonify(error=f"Échec suppression remote '{rn}'", output=out, code=code), 400
+        # Fallback: suppression directe dans rclone.conf
+        ok, msg = remove_remote_in_conf(rn)
+        if ok:
+            cfg = load_settings()
+            if cfg.get("remote_name") == rn:
+                cfg.pop("remote_name", None)
+                save_settings(cfg)
+            return jsonify(message=f"Remote '{rn}' supprimé (édition directe du fichier). {msg}", output=out, code=0)
+        return jsonify(error=f"Échec suppression remote '{rn}'", output=out, details=msg, code=code), 400
 
     # Nettoyage des réglages locaux si c'était le remote actif
     try:
