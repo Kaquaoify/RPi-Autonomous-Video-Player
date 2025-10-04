@@ -245,6 +245,54 @@ document.addEventListener("DOMContentLoaded", () => {
   refreshPreviewToggleUI();
 });
 
+// ===== Bouton Play/Pause intelligent =====
+const btnPlayPause = document.getElementById('btn-playpause');
+
+async function togglePlayPause() {
+  if (!btnPlayPause) return;
+
+  const currentAction = btnPlayPause.dataset.action;
+  const nextAction = currentAction === 'play' ? 'pause' : 'play';
+
+  // Lance la requête correspondante
+  try {
+    await fetch(`/control/${currentAction}`, { method: 'POST' });
+  } catch (e) {
+    console.warn('Erreur Play/Pause:', e);
+  }
+
+  // Animation de transition
+  btnPlayPause.classList.add('switching');
+  setTimeout(() => {
+    const icon = btnPlayPause.querySelector('i');
+    icon.className = `fa-solid fa-${nextAction === 'play' ? 'play' : 'pause'}`;
+    btnPlayPause.dataset.action = nextAction;
+    btnPlayPause.title = nextAction === 'play' ? 'Lecture' : 'Pause';
+    btnPlayPause.classList.toggle('active', nextAction === 'pause');
+    btnPlayPause.classList.remove('switching');
+  }, 200);
+}
+
+if (btnPlayPause) {
+  btnPlayPause.addEventListener('click', togglePlayPause);
+}
+
+// Synchronisation avec le statut /status
+async function syncPlayButton() {
+  try {
+    const r = await fetch('/status');
+    if (!r.ok) return;
+    const s = await r.json();
+    const isPlaying = s.state === 'playing';
+    btnPlayPause.dataset.action = isPlaying ? 'pause' : 'play';
+    const icon = btnPlayPause.querySelector('i');
+    icon.className = `fa-solid fa-${isPlaying ? 'pause' : 'play'}`;
+    btnPlayPause.classList.toggle('active', isPlaying);
+  } catch {}
+}
+
+// Appel périodique (toutes les 3 s)
+setInterval(syncPlayButton, 3000);
 
 
 // Init au chargement du DOM

@@ -303,3 +303,19 @@ main{
 #preview-vol {
   width: 140px;
 }
+
+/* ==============================
+   Animation bouton Play/Pause
+   ============================== */
+.vlc-btn i {
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+
+.vlc-btn.switching i {
+  transform: scale(0);
+  opacity: 0;
+}
+
+.vlc-btn.active i {
+  color: #7cff7a;
+}
