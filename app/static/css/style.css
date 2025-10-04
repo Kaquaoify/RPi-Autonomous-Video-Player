@@ -207,3 +207,42 @@ main{
   opacity:.75;
   font-size:.95rem;
 }
+
+/* Aperçu HLS : conteneur + overlay volume */
+.preview-wrap {
+  position: relative;
+  width: 100%;
+  height: 340px;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.preview-wrap video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  /* Désactive l’interaction sur la vidéo (clic, double-clic) */
+  pointer-events: none;
+}
+
+/* Overlay volume (bas-droite) */
+.preview-overlay {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  background: rgba(0,0,0,.5);
+  border-radius: 999px;
+  padding: .35rem .6rem;
+  backdrop-filter: blur(2px);
+}
+.preview-overlay label {
+  color: #fff;
+  font-size: .9rem;
+  user-select: none;
+}
+#preview-vol {
+  width: 140px;
+}

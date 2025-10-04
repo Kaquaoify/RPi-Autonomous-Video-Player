@@ -130,44 +130,82 @@ function attachClickHandlers() {
   }
 }
 
-// -------- Aperçu HLS (toggle) --------
+// -------- Aperçu HLS (toggle + volume local) --------
 let hlsInstance = null;
+
+function showPreviewUI(show) {
+  const wrap = document.getElementById("preview-wrap");
+  const ph = document.getElementById("vlc-output");
+  if (!wrap || !ph) return;
+  wrap.style.display = show ? "block" : "none";
+  ph.style.display = show ? "none" : "flex";
+}
+
+function applyVideoNoControls(video) {
+  // S’assure que les contrôles natifs sont désactivés
+  video.controls = false;
+  video.setAttribute("disablepictureinpicture", "");
+  video.setAttribute("disableremoteplayback", "");
+  video.setAttribute("controlslist", "nodownload noplaybackrate nofullscreen");
+  // Pas de menu contextuel
+  video.addEventListener("contextmenu", e => e.preventDefault());
+}
+
+function initLocalVolumeUI(video) {
+  const slider = document.getElementById("preview-vol");
+  if (!slider || !video) return;
+
+  // Récupère dernier volume (localStorage), sinon 0 (muted)
+  const saved = Number(localStorage.getItem("previewVolume") || "0");
+  const vol0to1 = Math.min(1, Math.max(0, saved / 100));
+  video.volume = vol0to1;
+  video.muted = vol0to1 === 0;
+  slider.value = String(Math.round(vol0to1 * 100));
+
+  slider.addEventListener("input", () => {
+    const v = Number(slider.value || "0");
+    const f = Math.min(1, Math.max(0, v / 100));
+    video.volume = f;
+    video.muted = (v === 0);
+    localStorage.setItem("previewVolume", String(v));
+  });
+}
 
 function startHlsPlayback(url) {
   const video = document.getElementById("preview-video");
   if (!video) return;
 
-  // Affiche la vidéo, masque le placeholder
-  video.style.display = "block";
-  const ph = document.getElementById("vlc-output");
-  if (ph) ph.style.display = "none";
+  showPreviewUI(true);
+  applyVideoNoControls(video);
+
+  // Prépare le volume local
+  initLocalVolumeUI(video);
 
   if (window.Hls && Hls.isSupported()) {
-    if (hlsInstance) {
-      hlsInstance.destroy();
-      hlsInstance = null;
-    }
+    if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
     hlsInstance = new Hls({ liveSyncDuration: 4, maxLiveSyncPlaybackRate: 1.0 });
     hlsInstance.loadSource(url);
     hlsInstance.attachMedia(video);
-    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(()=>{}));
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+      video.play().catch(() => {});
+    });
   } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-    video.src = url; // Safari / iOS
-    video.play().catch(()=>{});
+    // Safari / iOS
+    video.src = url;
+    video.play().catch(() => {});
   } else {
-    console.warn("HLS non supporté");
+    console.warn("HLS non supporté par ce navigateur");
   }
 }
 
 function stopHlsPlayback() {
   const video = document.getElementById("preview-video");
-  if (!video) return;
-  try { video.pause(); } catch {}
-  video.removeAttribute("src");
+  if (video) {
+    try { video.pause(); } catch {}
+    video.removeAttribute("src");
+  }
   if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-  video.style.display = "none";
-  const ph = document.getElementById("vlc-output");
-  if (ph) ph.style.display = "flex";
+  showPreviewUI(false);
 }
 
 async function refreshPreviewToggleUI() {
@@ -189,7 +227,7 @@ function wirePreviewToggle() {
     try {
       if (cb.checked) {
         const r = await fetch("/api/preview/enable", { method: "POST" });
-        const s = await r.json().catch(()=>({}));
+        const s = await r.json().catch(() => ({}));
         startHlsPlayback((s && s.url) || "/hls/index.m3u8");
       } else {
         await fetch("/api/preview/disable", { method: "POST" });
@@ -201,10 +239,12 @@ function wirePreviewToggle() {
   });
 }
 
+// Brancher à l’initialisation existante
 document.addEventListener("DOMContentLoaded", () => {
   wirePreviewToggle();
   refreshPreviewToggleUI();
 });
+
 
 
 // Init au chargement du DOM
