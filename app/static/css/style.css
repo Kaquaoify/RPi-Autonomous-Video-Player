@@ -95,6 +95,52 @@ main{
 .vlc-controls button:hover{ background:#4a4a4a; }
 
 /* ==============================
+   Contrôles VLC (avec FontAwesome)
+   ============================== */
+.vlc-controls {
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.vlc-btn {
+  background: linear-gradient(145deg, #2c2c2c, #1a1a1a);
+  border: 1px solid #333;
+  color: #f0f0f0;
+  border-radius: 50%;
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.vlc-btn:hover {
+  background: linear-gradient(145deg, #3b3b3b, #1e1e1e);
+  transform: scale(1.08);
+}
+
+.vlc-btn:active {
+  transform: scale(0.95);
+  background: linear-gradient(145deg, #1e1e1e, #101010);
+}
+
+.vlc-btn.small {
+  width: 42px;
+  height: 42px;
+  font-size: 1rem;
+}
+
+.vlc-btn i {
+  pointer-events: none;
+}
+
+
+/* ==============================
    Explorateur de vidéos (grille)
    ============================== */
 .video-explorer{
