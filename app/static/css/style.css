@@ -319,3 +319,49 @@ main{
 .vlc-btn.active i {
   color: #7cff7a;
 }
+
+/* Toolbar lecteur: tout sur une ligne */
+.player-toolbar{
+  display:flex;
+  align-items:center;
+  gap:16px;
+  width:100%;
+}
+
+/* garde une légère respiration entre bloc nav et volume  */
+.group-separator{ width:28px; height:1px; }
+
+/* pousse le panneau d’info complètement à droite */
+.flex-spacer{ flex:1 1 auto; }
+
+/* Le panneau d’état (vertical, aligné à droite) */
+.status-panel{
+  flex:0 1 360px;            /* largeur cible mais compressible */
+  max-width:520px;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:4px;
+}
+
+/* Titre défilant */
+.status-title{
+  width:100%;
+  overflow:hidden;
+  white-space:nowrap;
+  mask-image: linear-gradient(90deg, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%);
+}
+
+/* ralentir le scroll uniquement dans le panneau d’état */
+.status-title .scrolling-text{ animation-duration: 14s; }
+
+.status-line{
+  font-size:.95rem;
+  opacity:.85;
+}
+
+/* Ajuste l’espace si l’écran est étroit */
+@media (max-width: 720px){
+  .player-toolbar{ gap:12px; }
+  .status-panel{ flex-basis: 260px; }
+}

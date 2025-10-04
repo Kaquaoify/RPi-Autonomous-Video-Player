@@ -19,29 +19,6 @@
     </div>
   </header>
 
-  <!-- Barre d’état : titre vidéo / état VLC / volume -->
-  <div id="status-bar" style="opacity:.8;padding:.4rem 1rem;font-size:.9rem">
-    <span id="s-title">🎬 —</span> · <span id="s-state">▶ —</span> · <span id="s-vol">🔊 —</span>
-  </div>
-
-  <!-- Polling léger de l’état VLC (toutes les 3s) -->
-  <script>
-    async function refreshStatus(){
-      try{
-        const r = await fetch('/status');
-        if(!r.ok) return;                 // si l’API ne répond pas, on ne casse pas l’UI
-        const s = await r.json();
-        document.getElementById('s-title').textContent = `🎬 ${s.current ?? '—'}`;
-        document.getElementById('s-state').textContent = `▶ ${s.state ?? '—'}`;
-        document.getElementById('s-vol').textContent   = `🔊 ${s.volume ?? '—'}`;
-      }catch{
-        // silence : on évite de spammer la console si le service redémarre
-      }
-    }
-    refreshStatus();
-    setInterval(refreshStatus, 3000);     // intervalle suffisant pour un retour fluide
-  </script>
-
   <main>
     <!-- Bloc “lecteur” : zone HDMI factice (ptdr il est plus factice mtn) + contrôles -->
 <section class="video-container">
@@ -73,7 +50,7 @@
   <!-- Placeholder quand l’aperçu est désactivé -->
   <div id="vlc-output">Vidéo (lecture sur HDMI)</div>
 
-<div class="vlc-controls-wrap">
+<div class="vlc-controls-wrap player-toolbar">
   <!-- Bloc lecture / navigation -->
   <div class="vlc-controls main">
     <button class="vlc-btn" data-action="prev" title="Vidéo précédente"><i class="fa-solid fa-backward-step"></i></button>
@@ -87,6 +64,18 @@
   <div class="vlc-controls volume">
     <button class="vlc-btn" data-action="voldown" title="Baisser le volume"><i class="fa-solid fa-volume-low"></i></button>
     <button class="vlc-btn" data-action="volup" title="Augmenter le volume"><i class="fa-solid fa-volume-high"></i></button>
+  </div>
+
+  <!-- pousse le panneau d’état à droite -->
+  <div class="flex-spacer"></div>
+
+  <!-- Panneau d’état -->
+  <div class="status-panel" aria-live="polite">
+    <div class="status-title">
+      <div class="scrolling-text" id="s-title">🎬 —</div>
+    </div>
+    <div class="status-line"><span id="s-state">▶ —</span></div>
+    <div class="status-line"><span id="s-vol">🔊 —</span></div>
   </div>
 </div>
 

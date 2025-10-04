@@ -267,8 +267,24 @@ async function togglePlayPause() {
 }
 
 async function syncPlayButton() {
-  updatePlayPauseUI(await getIsPlaying());
+  try {
+    const r = await fetchWithTimeout('/status', { method: 'GET' });
+    if (!r.ok) return;
+    const s = await r.json();
+    updatePlayPauseUI(s.state === 'playing');
+    updateStatusPanelPayload(s);
+  } catch {}
 }
+
+function updateStatusPanelPayload(s){
+  const t = document.getElementById('s-title');
+  const st = document.getElementById('s-state');
+  const v = document.getElementById('s-vol');
+  if (t) t.textContent = `🎬 ${s.current ?? '—'}`;
+  if (st) st.textContent = `▶ ${s.state ?? '—'}`;
+  if (v) v.textContent = `🔊 ${s.volume ?? '—'}`;
+}
+
 
 // ==============================
 // Initialisation
