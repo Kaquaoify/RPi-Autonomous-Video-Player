@@ -89,8 +89,9 @@ async function playVideo(videoName) {
 // ==============================
 
 function attachClickHandlers() {
-  // Boutons de contrôle VLC
+  // Boutons de contrôle VLC (sauf Play/Pause intelligent)
   document.querySelectorAll(".vlc-btn").forEach((btn) => {
+    if (btn.id === "btn-playpause") return; // géré séparément
     const action = btn.dataset.action;
     if (!action) return;
     btn.addEventListener("click", () => sendAction(action), { passive: true });
@@ -128,6 +129,12 @@ function attachClickHandlers() {
       { passive: true }
     );
   }
+
+  // Bouton Play/Pause intelligent
+  const btnPP = document.getElementById("btn-playpause");
+  if (btnPP) {
+    btnPP.addEventListener("click", togglePlayPause, { passive: true });
+  }
 }
 
 // -------- Aperçu HLS (toggle + volume local) --------
@@ -148,7 +155,7 @@ function applyVideoNoControls(video) {
   video.setAttribute("disableremoteplayback", "");
   video.setAttribute("controlslist", "nodownload noplaybackrate nofullscreen");
   // Pas de menu contextuel
-  video.addEventListener("contextmenu", e => e.preventDefault());
+  video.addEventListener("contextmenu", (e) => e.preventDefault());
 }
 
 function initLocalVolumeUI(video) {
@@ -166,7 +173,7 @@ function initLocalVolumeUI(video) {
     const v = Number(slider.value || "0");
     const f = Math.min(1, Math.max(0, v / 100));
     video.volume = f;
-    video.muted = (v === 0);
+    video.muted = v === 0;
     localStorage.setItem("previewVolume", String(v));
   });
 }
@@ -182,7 +189,10 @@ function startHlsPlayback(url) {
   initLocalVolumeUI(video);
 
   if (window.Hls && Hls.isSupported()) {
-    if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+    if (hlsInstance) {
+      hlsInstance.destroy();
+      hlsInstance = null;
+    }
     hlsInstance = new Hls({ liveSyncDuration: 4, maxLiveSyncPlaybackRate: 1.0 });
     hlsInstance.loadSource(url);
     hlsInstance.attachMedia(video);
@@ -201,10 +211,15 @@ function startHlsPlayback(url) {
 function stopHlsPlayback() {
   const video = document.getElementById("preview-video");
   if (video) {
-    try { video.pause(); } catch {}
+    try {
+      video.pause();
+    } catch {}
     video.removeAttribute("src");
   }
-  if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+  if (hlsInstance) {
+    hlsInstance.destroy();
+    hlsInstance = null;
+  }
   showPreviewUI(false);
 }
 
@@ -239,61 +254,58 @@ function wirePreviewToggle() {
   });
 }
 
-// Brancher à l’initialisation existante
-document.addEventListener("DOMContentLoaded", () => {
-  wirePreviewToggle();
-  refreshPreviewToggleUI();
-});
-
 // ===== Bouton Play/Pause intelligent =====
-const btnPlayPause = document.getElementById('btn-playpause');
+
+function updatePlayPauseUI(isPlaying) {
+  const btn = document.getElementById("btn-playpause");
+  if (!btn) return;
+  const icon = btn.querySelector("i");
+  btn.dataset.action = isPlaying ? "pause" : "play";
+  icon.className = `fa-solid fa-${isPlaying ? "pause" : "play"}`;
+  btn.title = isPlaying ? "Pause" : "Lecture";
+  btn.classList.toggle("active", isPlaying);
+}
 
 async function togglePlayPause() {
-  if (!btnPlayPause) return;
+  const btn = document.getElementById("btn-playpause");
+  if (!btn) return;
 
-  const currentAction = btnPlayPause.dataset.action;
-  const nextAction = currentAction === 'play' ? 'pause' : 'play';
+  const action = btn.dataset.action || "play";
 
-  // Lance la requête correspondante
   try {
-    await fetch(`/control/${currentAction}`, { method: 'POST' });
-  } catch (e) {
-    console.warn('Erreur Play/Pause:', e);
-  }
+    await sendAction(action);
+  } catch (_) {}
 
-  // Animation de transition
-  btnPlayPause.classList.add('switching');
-  setTimeout(() => {
-    const icon = btnPlayPause.querySelector('i');
-    icon.className = `fa-solid fa-${nextAction === 'play' ? 'play' : 'pause'}`;
-    btnPlayPause.dataset.action = nextAction;
-    btnPlayPause.title = nextAction === 'play' ? 'Lecture' : 'Pause';
-    btnPlayPause.classList.toggle('active', nextAction === 'pause');
-    btnPlayPause.classList.remove('switching');
-  }, 200);
+  // petite anim' de bascule
+  btn.classList.add("switching");
+  setTimeout(() => btn.classList.remove("switching"), 200);
+
+  // on bascule localement (play -> pause, pause -> play)
+  updatePlayPauseUI(action === "play");
 }
 
-if (btnPlayPause) {
-  btnPlayPause.addEventListener('click', togglePlayPause);
-}
-
-// Synchronisation avec le statut /status
 async function syncPlayButton() {
   try {
-    const r = await fetch('/status');
+    const r = await fetchWithTimeout("/status", { method: "GET" });
     if (!r.ok) return;
     const s = await r.json();
-    const isPlaying = s.state === 'playing';
-    btnPlayPause.dataset.action = isPlaying ? 'pause' : 'play';
-    const icon = btnPlayPause.querySelector('i');
-    icon.className = `fa-solid fa-${isPlaying ? 'pause' : 'play'}`;
-    btnPlayPause.classList.toggle('active', isPlaying);
-  } catch {}
+    updatePlayPauseUI(s.state === "playing");
+  } catch (_) {}
 }
 
-// Appel périodique (toutes les 3 s)
-setInterval(syncPlayButton, 3000);
+// ==============================
+// Initialisation
+// ==============================
 
+document.addEventListener("DOMContentLoaded", () => {
+  // UI Aperçu HLS
+  wirePreviewToggle();
+  refreshPreviewToggleUI();
 
-// Init au chargement du DOM
-document.addEventListener("DOMContentLoaded", attachClickHandlers);
+  // Contrôles & handlers
+  attachClickHandlers();
+
+  // Sync initiale du bouton Play/Pause + polling périodique
+  syncPlayButton();
+  setInterval(syncPlayButton, 3000);
+});
