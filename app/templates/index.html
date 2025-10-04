@@ -73,14 +73,22 @@
   <!-- Placeholder quand l’aperçu est désactivé -->
   <div id="vlc-output">Vidéo (lecture sur HDMI)</div>
 
-<div class="vlc-controls">
-  <button class="vlc-btn" data-action="prev" title="Vidéo précédente"><i class="fa-solid fa-backward-step"></i></button>
-  <button class="vlc-btn" data-action="play" title="Lecture"><i class="fa-solid fa-play"></i></button>
-  <button class="vlc-btn" data-action="pause" title="Pause"><i class="fa-solid fa-pause"></i></button>
-  <button class="vlc-btn" data-action="next" title="Vidéo suivante"><i class="fa-solid fa-forward-step"></i></button>
-  <button class="vlc-btn small" data-action="voldown" title="Baisser le volume"><i class="fa-solid fa-volume-low"></i></button>
-  <button class="vlc-btn small" data-action="volup" title="Augmenter le volume"><i class="fa-solid fa-volume-high"></i></button>
+<div class="vlc-controls-wrap">
+  <!-- Bloc lecture / navigation -->
+  <div class="vlc-controls main">
+    <button class="vlc-btn" data-action="prev" title="Vidéo précédente"><i class="fa-solid fa-backward-step"></i></button>
+    <button class="vlc-btn" data-action="play" title="Lecture"><i class="fa-solid fa-play"></i></button>
+    <button class="vlc-btn" data-action="pause" title="Pause"><i class="fa-solid fa-pause"></i></button>
+    <button class="vlc-btn" data-action="next" title="Vidéo suivante"><i class="fa-solid fa-forward-step"></i></button>
+  </div>
+
+  <!-- Bloc volume -->
+  <div class="vlc-controls volume">
+    <button class="vlc-btn" data-action="voldown" title="Baisser le volume"><i class="fa-solid fa-volume-low"></i></button>
+    <button class="vlc-btn" data-action="volup" title="Augmenter le volume"><i class="fa-solid fa-volume-high"></i></button>
+  </div>
 </div>
+
 
 </section>
 

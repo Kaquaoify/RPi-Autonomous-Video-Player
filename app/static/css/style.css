@@ -95,25 +95,46 @@ main{
 .vlc-controls button:hover{ background:#4a4a4a; }
 
 /* ==============================
-   Contrôles VLC (avec FontAwesome)
+   Contrôles VLC (Fontawesome)
    ============================== */
+
+/* Wrapper général (permet 2 lignes en responsive) */
+.vlc-controls-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px 32px;
+  margin-top: 10px;
+}
+
+/* Groupes (lecture / volume) */
 .vlc-controls {
-  gap: 12px;
+  display: flex;
+  gap: 14px;
   justify-content: center;
   flex-wrap: wrap;
 }
 
+.vlc-controls.main {
+  flex: 2;
+}
+
+.vlc-controls.volume {
+  flex: 1;
+}
+
+/* Boutons ronds modernes */
 .vlc-btn {
   background: linear-gradient(145deg, #2c2c2c, #1a1a1a);
   border: 1px solid #333;
   color: #f0f0f0;
   border-radius: 50%;
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.1rem;
+  font-size: 1.2rem;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
   cursor: pointer;
   transition: transform 0.15s ease, background 0.15s ease;
@@ -129,15 +150,19 @@ main{
   background: linear-gradient(145deg, #1e1e1e, #101010);
 }
 
-.vlc-btn.small {
-  width: 42px;
-  height: 42px;
-  font-size: 1rem;
-}
-
 .vlc-btn i {
   pointer-events: none;
+  font-size: 1.2em;
 }
+
+/* Responsive : empile les deux blocs si espace réduit */
+@media (max-width: 650px) {
+  .vlc-controls-wrap {
+    flex-direction: column;
+    align-items: center;
+  }
+}
+
 
 
 /* ==============================
