@@ -41,19 +41,34 @@
   </script>
 
   <main>
-    <!-- Bloc “lecteur” : zone HDMI factice + contrôles -->
-    <section class="video-container">
-      <div id="vlc-output">Vidéo (lecture sur HDMI)</div>
-      <div class="vlc-controls">
-        <!-- data-action = action envoyée à /control/<action> -->
-        <button class="vlc-btn" data-action="prev">⏮</button>
-        <button class="vlc-btn" data-action="play">▶</button>
-        <button class="vlc-btn" data-action="pause">⏸</button>
-        <button class="vlc-btn" data-action="next">⏭</button>
-        <button class="vlc-btn" data-action="volup">Vol+</button>
-        <button class="vlc-btn" data-action="voldown">Vol-</button>
-      </div>
-    </section>
+    <!-- Bloc “lecteur” : zone HDMI factice (ptdr il est plus factice mtn) + contrôles -->
+<section class="video-container">
+  <!-- Barre d'activation -->
+  <div class="vlc-controls" style="justify-content:flex-start;width:100%">
+    <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+      <input type="checkbox" id="preview-toggle">
+      <span>Afficher l’aperçu dans le navigateur (HLS)</span>
+    </label>
+  </div>
+
+  <!-- Aperçu HLS (caché si désactivé) -->
+  <video id="preview-video"
+         style="width:100%;height:340px;background:#000;border-radius:8px;display:none"
+         controls autoplay muted playsinline></video>
+
+  <!-- Placeholder quand l’aperçu est désactivé -->
+  <div id="vlc-output">Vidéo (lecture sur HDMI)</div>
+
+  <div class="vlc-controls">
+    <button class="vlc-btn" data-action="prev">⏮</button>
+    <button class="vlc-btn" data-action="play">▶</button>
+    <button class="vlc-btn" data-action="pause">⏸</button>
+    <button class="vlc-btn" data-action="next">⏭</button>
+    <button class="vlc-btn" data-action="volup">Vol+</button>
+    <button class="vlc-btn" data-action="voldown">Vol-</button>
+  </div>
+</section>
+
 
     <!-- Explorateur : liste des vidéos disponibles -->
     <section class="video-explorer">
@@ -83,6 +98,7 @@
   </main>
 
   <!-- JS : handlers des boutons + lecture vidéo -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
   <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
 </body>
 </html>

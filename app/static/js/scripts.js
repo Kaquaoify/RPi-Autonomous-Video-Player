@@ -130,5 +130,82 @@ function attachClickHandlers() {
   }
 }
 
+// -------- Aperçu HLS (toggle) --------
+let hlsInstance = null;
+
+function startHlsPlayback(url) {
+  const video = document.getElementById("preview-video");
+  if (!video) return;
+
+  // Affiche la vidéo, masque le placeholder
+  video.style.display = "block";
+  const ph = document.getElementById("vlc-output");
+  if (ph) ph.style.display = "none";
+
+  if (window.Hls && Hls.isSupported()) {
+    if (hlsInstance) {
+      hlsInstance.destroy();
+      hlsInstance = null;
+    }
+    hlsInstance = new Hls({ liveSyncDuration: 4, maxLiveSyncPlaybackRate: 1.0 });
+    hlsInstance.loadSource(url);
+    hlsInstance.attachMedia(video);
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(()=>{}));
+  } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    video.src = url; // Safari / iOS
+    video.play().catch(()=>{});
+  } else {
+    console.warn("HLS non supporté");
+  }
+}
+
+function stopHlsPlayback() {
+  const video = document.getElementById("preview-video");
+  if (!video) return;
+  try { video.pause(); } catch {}
+  video.removeAttribute("src");
+  if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+  video.style.display = "none";
+  const ph = document.getElementById("vlc-output");
+  if (ph) ph.style.display = "flex";
+}
+
+async function refreshPreviewToggleUI() {
+  try {
+    const r = await fetch("/api/preview/status");
+    if (!r.ok) return;
+    const s = await r.json();
+    const cb = document.getElementById("preview-toggle");
+    if (cb) cb.checked = !!s.enabled;
+    if (s.enabled) startHlsPlayback(s.url || "/hls/index.m3u8");
+    else stopHlsPlayback();
+  } catch {}
+}
+
+function wirePreviewToggle() {
+  const cb = document.getElementById("preview-toggle");
+  if (!cb) return;
+  cb.addEventListener("change", async () => {
+    try {
+      if (cb.checked) {
+        const r = await fetch("/api/preview/enable", { method: "POST" });
+        const s = await r.json().catch(()=>({}));
+        startHlsPlayback((s && s.url) || "/hls/index.m3u8");
+      } else {
+        await fetch("/api/preview/disable", { method: "POST" });
+        stopHlsPlayback();
+      }
+    } catch (e) {
+      console.error("preview toggle error:", e);
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  wirePreviewToggle();
+  refreshPreviewToggleUI();
+});
+
+
 // Init au chargement du DOM
 document.addEventListener("DOMContentLoaded", attachClickHandlers);

@@ -24,6 +24,12 @@ THUMB_DIR = os.path.join(VIDEO_DIR, "thumbnails")
 VLC_AUDIO_VOLUME_STEP = 10
 VLC_START_AT = 5
 
+# --- Aperçu HLS (flux web) ---
+HLS_DIR = os.path.join(USER_HOME, ".local", "share", "rpi-avp", "hls")
+HLS_INDEX = os.path.join(HLS_DIR, "index.m3u8")
+os.makedirs(HLS_DIR, exist_ok=True)
+
+
 # ==============================
 # État global (liste vidéos, VLC, miniatures)
 # ==============================
@@ -139,7 +145,7 @@ def safe_refresh_videos(non_blocking: bool = True, timeout: float = 0.2):
 
 
 def set_media_by_index(idx: int) -> bool:
-    """Charge la vidéo d’index idx dans VLC."""
+    """Charge la vidéo d’index idx dans VLC (+sout HLS si aperçu activé)."""
     global _player, videos
     if not ensure_vlc_ready():
         return False
@@ -149,8 +155,31 @@ def set_media_by_index(idx: int) -> bool:
     try:
         if not videos or idx < 0 or idx >= len(videos):
             return False
+
         path = os.path.join(VIDEO_DIR, videos[idx])
         media = _instance.media_new(path)
+
+        # ⬇️ Duplique vers un flux HLS si l’aperçu est activé
+        if is_preview_enabled():
+            clear_hls_dir()  # on repart propre
+            # VLC écrit les segments/playlist ici, et Flask les sert via /hls/...
+            index_path = HLS_INDEX
+            seg_path_tmpl = os.path.join(HLS_DIR, "seg-########.ts")
+            # index-url est l’URL web que verra le navigateur
+            index_url = "/hls/seg-########.ts"
+
+            sout = (
+                f"#duplicate{{dst=display,"
+                f"dst=std{{access=livehttp{{"
+                f"seglen=2,delsegs=true,numsegs=5,"
+                f"index={index_path},index-url={index_url}"
+                f"}}"
+                f",mux=ts{{use-key-frames}},dst={seg_path_tmpl}}}}}"
+            )
+            media.add_option(f":sout={sout}")
+            media.add_option(":sout-all")
+            media.add_option(":sout-keep")
+
         _player.set_media(media)
         return True
     finally:
@@ -313,6 +342,20 @@ def remove_remote_in_conf(remote_name: str):
         return True, f"Section supprimée (backup: {backup})"
     except Exception as e:
         return False, f"Erreur édition conf: {type(e).__name__}: {e}"
+    
+    # --- Aperçu: helpers settings + nettoyage ---
+def is_preview_enabled() -> bool:
+    return bool(get_setting("preview_enabled", False))
+
+def set_preview_enabled(val: bool):
+    set_settings(preview_enabled=bool(val))
+
+def clear_hls_dir():
+    try:
+        shutil.rmtree(HLS_DIR, ignore_errors=True)
+    finally:
+        os.makedirs(HLS_DIR, exist_ok=True)
+
 
 
 # ==============================
@@ -478,6 +521,51 @@ def status_min():
 @app.route("/health")
 def health():
     """Ping simple pour watchdogs."""
+    return jsonify(ok=True)
+
+# -------- Aperçu: serve HLS ----------
+@app.route("/hls/<path:filename>")
+def hls_files(filename):
+    # Pas de cache côté client pour suivre la playlist
+    from flask import make_response, send_from_directory
+    if not os.path.isfile(os.path.join(HLS_DIR, filename)) and filename != "index.m3u8":
+        # on laisse VLC créer les fichiers; si absent -> 404
+        pass
+    resp = send_from_directory(HLS_DIR, filename)
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return resp
+
+# -------- Aperçu: API ----------
+@app.route("/api/preview/status")
+def api_preview_status():
+    return jsonify(enabled=is_preview_enabled(), url="/hls/index.m3u8")
+
+@app.route("/api/preview/enable", methods=["POST"])
+def api_preview_enable():
+    set_preview_enabled(True)
+    clear_hls_dir()
+    # recharge le média courant pour (ré)appliquer le sout
+    if get_snapshot()[0] > 0:
+        try:
+            _player.stop()
+        except Exception:
+            pass
+        if set_media_by_index(max(0, min(video_index, len(videos)-1))):
+            _player.play()
+    return jsonify(ok=True, url="/hls/index.m3u8")
+
+@app.route("/api/preview/disable", methods=["POST"])
+def api_preview_disable():
+    set_preview_enabled(False)
+    # recharge le média courant pour retirer le sout
+    if get_snapshot()[0] > 0:
+        try:
+            _player.stop()
+        except Exception:
+            pass
+        if set_media_by_index(max(0, min(video_index, len(videos)-1))):
+            _player.play()
+    clear_hls_dir()
     return jsonify(ok=True)
 
 
