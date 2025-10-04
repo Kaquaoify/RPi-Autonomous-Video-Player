@@ -15,10 +15,7 @@ const PLACEHOLDER_THUMB =
 // Utilitaires
 // ==============================
 
-// Log uniforme côté console (filtrable)
-function log(...args) {
-  console.log("[RPi-AVP]", ...args);
-}
+function log(...args) { console.log("[RPi-AVP]", ...args); }
 
 // fetch avec timeout (AbortController)
 async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
@@ -36,34 +33,30 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS)
 
 // parse JSON sans casser le flux si la réponse n'est pas JSON
 async function parseJsonSafe(res) {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
+  try { return await res.json(); } catch { return null; }
 }
 
 // ==============================
 // API: commandes VLC & lecture
 // ==============================
 
-// Envoi d'une action à /control/<action> (play/pause/next/prev/vol)
 async function sendAction(action) {
   try {
     const res = await fetchWithTimeout(`/control/${encodeURIComponent(action)}`, { method: "POST" });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error("[control] HTTP", res.status, body);
-      return;
+      return null;
     }
     const data = await parseJsonSafe(res);
     log("[control]", action, data);
+    return data;
   } catch (err) {
     console.error("[control][error]", action, err);
+    return null;
   }
 }
 
-// Demande de lecture d'une vidéo précise via /play-video
 async function playVideo(videoName) {
   log("[play-video] ->", videoName);
   try {
@@ -121,13 +114,7 @@ function attachClickHandlers() {
   // Bouton d'accès à la page paramètres
   const btnSettings = document.getElementById("btn-settings");
   if (btnSettings) {
-    btnSettings.addEventListener(
-      "click",
-      () => {
-        window.location.href = "/settings";
-      },
-      { passive: true }
-    );
+    btnSettings.addEventListener("click", () => { window.location.href = "/settings"; }, { passive: true });
   }
 
   // Bouton Play/Pause intelligent
@@ -149,12 +136,10 @@ function showPreviewUI(show) {
 }
 
 function applyVideoNoControls(video) {
-  // S’assure que les contrôles natifs sont désactivés
   video.controls = false;
   video.setAttribute("disablepictureinpicture", "");
   video.setAttribute("disableremoteplayback", "");
   video.setAttribute("controlslist", "nodownload noplaybackrate nofullscreen");
-  // Pas de menu contextuel
   video.addEventListener("contextmenu", (e) => e.preventDefault());
 }
 
@@ -162,7 +147,6 @@ function initLocalVolumeUI(video) {
   const slider = document.getElementById("preview-vol");
   if (!slider || !video) return;
 
-  // Récupère dernier volume (localStorage), sinon 0 (muted)
   const saved = Number(localStorage.getItem("previewVolume") || "0");
   const vol0to1 = Math.min(1, Math.max(0, saved / 100));
   video.volume = vol0to1;
@@ -184,23 +168,15 @@ function startHlsPlayback(url) {
 
   showPreviewUI(true);
   applyVideoNoControls(video);
-
-  // Prépare le volume local
   initLocalVolumeUI(video);
 
   if (window.Hls && Hls.isSupported()) {
-    if (hlsInstance) {
-      hlsInstance.destroy();
-      hlsInstance = null;
-    }
+    if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
     hlsInstance = new Hls({ liveSyncDuration: 4, maxLiveSyncPlaybackRate: 1.0 });
     hlsInstance.loadSource(url);
     hlsInstance.attachMedia(video);
-    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-      video.play().catch(() => {});
-    });
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(() => {}); });
   } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-    // Safari / iOS
     video.src = url;
     video.play().catch(() => {});
   } else {
@@ -211,15 +187,10 @@ function startHlsPlayback(url) {
 function stopHlsPlayback() {
   const video = document.getElementById("preview-video");
   if (video) {
-    try {
-      video.pause();
-    } catch {}
+    try { video.pause(); } catch {}
     video.removeAttribute("src");
   }
-  if (hlsInstance) {
-    hlsInstance.destroy();
-    hlsInstance = null;
-  }
+  if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
   showPreviewUI(false);
 }
 
@@ -266,31 +237,37 @@ function updatePlayPauseUI(isPlaying) {
   btn.classList.toggle("active", isPlaying);
 }
 
+async function getIsPlaying() {
+  try {
+    const r = await fetchWithTimeout("/status", { method: "GET" });
+    if (!r.ok) return false;
+    const s = await r.json();
+    return s.state === "playing";
+  } catch { return false; }
+}
+
 async function togglePlayPause() {
   const btn = document.getElementById("btn-playpause");
   if (!btn) return;
 
-  const action = btn.dataset.action || "play";
+  // 1) Lis l'état réel
+  const isPlayingNow = await getIsPlaying();
+  const action = isPlayingNow ? "pause" : "play";
 
-  try {
-    await sendAction(action);
-  } catch (_) {}
+  // 2) Envoie la commande correspondante
+  await sendAction(action);
 
-  // petite anim' de bascule
+  // 3) Petite anim' puis resync avec l'état réel (évite tout décalage)
   btn.classList.add("switching");
-  setTimeout(() => btn.classList.remove("switching"), 200);
-
-  // on bascule localement (play -> pause, pause -> play)
-  updatePlayPauseUI(action === "play");
+  setTimeout(async () => {
+    const isPlayingAfter = await getIsPlaying();
+    updatePlayPauseUI(isPlayingAfter);
+    btn.classList.remove("switching");
+  }, 200);
 }
 
 async function syncPlayButton() {
-  try {
-    const r = await fetchWithTimeout("/status", { method: "GET" });
-    if (!r.ok) return;
-    const s = await r.json();
-    updatePlayPauseUI(s.state === "playing");
-  } catch (_) {}
+  updatePlayPauseUI(await getIsPlaying());
 }
 
 // ==============================
