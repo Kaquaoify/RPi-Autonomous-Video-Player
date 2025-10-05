@@ -274,7 +274,11 @@ def _attach_end_reached(loop_all: bool = True):
     """Attache l'événement 'fin de média' pour chaîner sur la suivante."""
     if not ensure_vlc_ready():
         return
-    em = _player.event_manager()
+    try:
+        em = _player.event_manager()
+    except Exception as e:
+        app.logger.warning("event_manager() failed: %s", e)
+        return
 
     def _on_end(event):
         if loop_all:
@@ -286,6 +290,7 @@ def _attach_end_reached(loop_all: bool = True):
         app.logger.info("VLC MediaPlayerEndReached attached (loop_all=%s)", loop_all)
     except Exception as e:
         app.logger.warning("attach_end_reached failed: %s", e)
+
 
 
 def _bootstrap_autoplay():
@@ -410,7 +415,7 @@ def remove_remote_in_conf(remote_name: str):
     except Exception as e:
         return False, f"Erreur édition conf: {type(e).__name__}: {e}"
     
-    # --- Aperçu: helpers settings + nettoyage ---
+# --- Aperçu: helpers settings + nettoyage ---
 def is_preview_enabled() -> bool:
     return bool(get_setting("preview_enabled", False))
 
