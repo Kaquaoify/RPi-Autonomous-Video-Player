@@ -280,7 +280,9 @@ function updateStatusPanelPayload(s){
   // ---- Titre
   const titleEl = document.getElementById('s-title');
   if (titleEl) {
-    titleEl.textContent = s && s.current ? s.current : '—';
+    const title = (s && s.current) ? s.current : '—';
+    titleEl.textContent = title;
+    titleEl.setAttribute('title', title);   // tooltip plein titre
   }
 
   // ---- État: badge + icône + texte
@@ -332,8 +334,33 @@ function updateStatusPanelPayload(s){
     }
     volIcon.className = `fa-solid ${vIcon}`;
   }
+    requestAnimationFrame(updateTitleOverflow);
 }
 
+function updateTitleOverflow() {
+  const row = document.querySelector('.status-title');
+  const mask = document.querySelector('.status-title-mask');
+  const txt  = document.getElementById('s-title');
+  if (!row || !mask || !txt) return;
+
+  // mesure le débordement horizontal
+  const needsScroll = txt.scrollWidth > mask.clientWidth + 2; // marge anti-flap
+  row.classList.toggle('is-overflowing', needsScroll);
+
+  if (needsScroll) {
+    const overflowPx = Math.max(0, txt.scrollWidth - mask.clientWidth);
+    // durée proportionnelle (8–20 s)
+    const dur = Math.max(8, Math.min(20, overflowPx / 30));
+    txt.style.setProperty('--scroll-px', overflowPx + 'px');
+    txt.style.setProperty('--scroll-duration', dur + 's');
+    // ellipsis OFF pour le scroll (le mask fait le boulot)
+    txt.style.textOverflow = 'clip';
+  } else {
+    txt.style.removeProperty('--scroll-px');
+    txt.style.removeProperty('--scroll-duration');
+    txt.style.textOverflow = 'ellipsis';
+  }
+}
 
 // ==============================
 // Initialisation
@@ -350,4 +377,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // Sync initiale du bouton Play/Pause + polling périodique
   syncPlayButton();
   setInterval(syncPlayButton, 3000);
+});
+
+window.addEventListener('resize', () => {
+  // léger debounce
+  clearTimeout(window.__st_overflow_t);
+  window.__st_overflow_t = setTimeout(updateTitleOverflow, 100);
 });

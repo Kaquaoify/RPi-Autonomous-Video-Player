@@ -72,12 +72,15 @@
 <!-- Panneau d’état -->
 <div class="status-panel" aria-live="polite">
   <div class="status-card">
-    <div class="status-row">
-      <div class="status-label">Titre</div>
-      <div class="status-value status-title">
-        <i class="fa-solid fa-film"></i>
-        <div class="scrolling-text" id="s-title">—</div>
-      </div>
+<div class="status-row">
+  <div class="status-label">Titre</div>
+  <div class="status-value status-title">
+    <i class="fa-solid fa-film status-film" aria-hidden="true"></i>
+    <div class="status-title-mask">
+      <span id="s-title" class="title-text" title="—">—</span>
+    </div>
+  </div>
+</div>
     </div>
 
     <div class="status-row">
