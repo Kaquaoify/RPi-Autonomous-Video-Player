@@ -69,41 +69,44 @@
   <!-- pousse le panneau d’état à droite -->
   <div class="flex-spacer"></div>
 
-<!-- Panneau d’état -->
-<div class="status-panel" aria-live="polite">
-  <div class="status-card">
-    <div class="status-row">
-      <div class="status-label">Titre</div>
-      <div class="status-value status-title">
-        <i class="fa-solid fa-film status-film" aria-hidden="true"></i>
-      <div class="title-scroller">
-      <span id="s-title" class="title-text" title="—">—</span>
+  <!-- Panneau d’état -->
+  <div class="status-panel" aria-live="polite">
+    <div class="status-card">
+
+      <!-- Rangée Titre (corrigée) -->
+      <div class="status-row">
+        <div class="status-label">Titre</div>
+        <div class="status-value status-title">
+          <i class="fa-solid fa-film status-film" aria-hidden="true"></i>
+          <div class="title-scroller">
+            <span id="s-title" class="title-text" title="—">—</span>
+          </div>
+        </div>
       </div>
-    </div>
-  </div>
 
-
-    </div>
-
-    <div class="status-row">
-      <div class="status-label">État</div>
-      <div class="status-value">
-        <span id="s-state-badge" class="status-badge">
-          <i id="s-state-icon" class="fa-solid fa-circle-play"></i>
-        </span>
-        <span id="s-state-text">—</span>
+      <!-- Rangée État -->
+      <div class="status-row">
+        <div class="status-label">État</div>
+        <div class="status-value">
+          <span id="s-state-badge" class="status-badge">
+            <i id="s-state-icon" class="fa-solid fa-circle-play"></i>
+          </span>
+          <span id="s-state-text">—</span>
+        </div>
       </div>
-    </div>
 
-    <div class="status-row">
-      <div class="status-label">Volume</div>
-      <div class="status-value">
-        <i id="s-vol-icon" class="fa-solid fa-volume-off"></i>
-        <span id="s-vol">—</span>
+      <!-- Rangée Volume -->
+      <div class="status-row">
+        <div class="status-label">Volume</div>
+        <div class="status-value">
+          <i id="s-vol-icon" class="fa-solid fa-volume-off"></i>
+          <span id="s-vol">—</span>
+        </div>
       </div>
-    </div>
-  </div>
-</div>
+
+    </div> <!-- /.status-card -->
+  </div>   <!-- /.status-panel -->
+</div>     <!-- /.player-toolbar -->
 
 
 </section>
