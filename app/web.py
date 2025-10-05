@@ -51,6 +51,9 @@ _player = None
 _last_vlc_error = None
 _vlc_init_lock = threading.Lock()
 
+# Lecture/loop
+_end_event_attached = False  # évite de ré-attacher l'event de fin
+
 
 # ==============================
 # VLC : choix d’options
@@ -71,7 +74,7 @@ def _vlc_opts_candidates():
 
 def ensure_vlc_ready() -> bool:
     """Init VLC si besoin. Ne bloque pas le serveur."""
-    global _instance, _player, _last_vlc_error
+    global _instance, _player, _last_vlc_error, _end_event_attached
     if _player is not None:
         return True
     with _vlc_init_lock:
@@ -92,6 +95,10 @@ def ensure_vlc_ready() -> bool:
                 _player = ply
                 _last_vlc_error = None
                 app.logger.info("VLC init success.")
+                # attache l'event "fin de média" une seule fois
+                if not _end_event_attached:
+                    _attach_end_reached(loop_all=get_setting("loop_all", True))
+                    _end_event_attached = True
                 return True
             except Exception as e:
                 _last_vlc_error = f"{type(e).__name__}: {e}"
@@ -233,6 +240,66 @@ def ensure_media_loaded():
     if _player.get_media() is None:
         return set_media_by_index(max(0, min(video_index, len(videos) - 1))) if videos else False
     return True
+
+
+# ======== Lecture enchaînée & autoplay ========
+
+def _play_current():
+    """Stop + Play robustes sur le média déjà chargé."""
+    if not ensure_vlc_ready():
+        return False
+    try:
+        _player.stop()
+    except Exception:
+        pass
+    try:
+        _player.play()
+        return True
+    except Exception:
+        return False
+
+
+def _play_next_loop():
+    """Passe à la vidéo suivante en boucle."""
+    global video_index
+    cnt, _ = get_snapshot()
+    if cnt == 0:
+        return
+    video_index = (video_index + 1) % cnt
+    if set_media_by_index(video_index):
+        _play_current()
+
+
+def _attach_end_reached(loop_all: bool = True):
+    """Attache l'événement 'fin de média' pour chaîner sur la suivante."""
+    if not ensure_vlc_ready():
+        return
+    em = _player.event_manager()
+
+    def _on_end(event):
+        if loop_all:
+            # Déporter dans un thread court pour ne pas bloquer le callback VLC
+            threading.Thread(target=_play_next_loop, daemon=True).start()
+
+    try:
+        em.event_attach(vlc.EventType.MediaPlayerEndReached, _on_end)
+        app.logger.info("VLC MediaPlayerEndReached attached (loop_all=%s)", loop_all)
+    except Exception as e:
+        app.logger.warning("attach_end_reached failed: %s", e)
+
+
+def _bootstrap_autoplay():
+    """Lancé au premier accès Flask : construit l'index et démarre la lecture si demandé."""
+    try:
+        safe_refresh_videos(non_blocking=False)
+        if get_setting("autoplay", True) and videos:
+            # laisse VLC/ALSA respirer un peu au boot
+            time.sleep(0.8)
+            # charge la première et lance
+            if set_media_by_index(0):
+                _play_current()
+    except Exception as e:
+        app.logger.warning("bootstrap autoplay error: %s", e)
 
 
 # ==============================
@@ -421,14 +488,14 @@ def control(action):
         video_index = (video_index + 1) % max(1, count)
         if not set_media_by_index(video_index):
             return jsonify(status="error", message=f"Failed to set media: {_last_vlc_error}"), 500
-        _player.stop(); _player.play()
+        _play_current()
     elif action == "prev":
         if count == 0:
             return jsonify(status="error", message="No videos"), 400
         video_index = (video_index - 1) % max(1, count)
         if not set_media_by_index(video_index):
             return jsonify(status="error", message=f"Failed to set media: {_last_vlc_error}"), 500
-        _player.stop(); _player.play()
+        _play_current()
     elif action == "volup":
         if not ensure_vlc_ready():
             return jsonify(status="error", message="VLC not ready"), 500
@@ -486,8 +553,7 @@ def play_video():
     if not set_media_by_index(video_index):
         return jsonify(status="error", message=f"Failed to set media: {_last_vlc_error}"), 500
 
-    _player.stop()
-    _player.play()
+    _play_current()
     app.logger.info("Now playing index=%d name=%s", video_index, video_name)
     return jsonify(status="playing", video=video_name)
 
@@ -789,6 +855,16 @@ def api_rclone_log():
         return txt, 200, {"Content-Type": "text/plain; charset=utf-8"}
     except Exception as e:
         return f"Erreur lecture log: {e}\n", 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
+# ==============================
+# Hooks Flask
+# ==============================
+@app.before_first_request
+def _on_first_request():
+    # lance thumbnails + éventuel autoplay de manière non bloquante
+    ensure_thumbnails_background()
+    threading.Thread(target=_bootstrap_autoplay, daemon=True).start()
 
 
 # ==============================
