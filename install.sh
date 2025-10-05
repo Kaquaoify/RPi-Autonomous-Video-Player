@@ -99,7 +99,8 @@ SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}"
 sudo tee "${SERVICE_FILE}" > /dev/null <<EOF
 [Unit]
 Description=RPi-Autonomous-Video-Player
-After=network-online.target
+After=network-online.target sound.target
+Wants=network-online.target
 
 [Service]
 Type=simple
