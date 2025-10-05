@@ -4,7 +4,6 @@
 // Constantes
 // ==============================
 
-// Délai max pour fetch (évite les requêtes bloquées)
 const FETCH_TIMEOUT_MS = 8000;
 
 // 1x1 PNG transparent (placeholder local, pas de fichier statique requis)
@@ -92,14 +91,10 @@ function attachClickHandlers() {
 
   // Clic sur une carte vidéo → lecture
   document.querySelectorAll(".video-item").forEach((item) => {
-    item.addEventListener(
-      "click",
-      () => {
-        const name = item.dataset.name || item.getAttribute("data-name");
-        if (name) playVideo(name);
-      },
-      { passive: true }
-    );
+    item.addEventListener("click", () => {
+      const name = item.dataset.name || item.getAttribute("data-name");
+      if (name) playVideo(name);
+    }, { passive: true });
   });
 
   // Fallback pour miniatures cassées → 1x1 transparent
@@ -157,7 +152,7 @@ function initLocalVolumeUI(video) {
     const v = Number(slider.value || "0");
     const f = Math.min(1, Math.max(0, v / 100));
     video.volume = f;
-    video.muted = v === 0;
+    video.muted = (v === 0);
     localStorage.setItem("previewVolume", String(v));
   });
 }
@@ -225,7 +220,9 @@ function wirePreviewToggle() {
   });
 }
 
-// ===== Bouton Play/Pause intelligent =====
+// ==============================
+// Play/Pause intelligent + panneau d’état
+// ==============================
 
 function updatePlayPauseUI(isPlaying) {
   const btn = document.getElementById("btn-playpause");
@@ -260,61 +257,41 @@ async function togglePlayPause() {
   // 3) Petite anim' puis resync avec l'état réel (évite tout décalage)
   btn.classList.add("switching");
   setTimeout(async () => {
-    const isPlayingAfter = await getIsPlaying();
-    updatePlayPauseUI(isPlayingAfter);
+    await syncStatusOnce();
     btn.classList.remove("switching");
   }, 200);
 }
 
-async function syncPlayButton() {
-  try {
-    const r = await fetchWithTimeout('/status', { method: 'GET' });
-    if (!r.ok) return;
-    const s = await r.json();
-    updatePlayPauseUI(s.state === 'playing');
-    updateStatusPanelPayload(s);
-  } catch {}
-}
+function updateStatusPanelPayload(s) {
+  // ---- Titre
+  const titleEl = document.getElementById('s-title');
+  if (titleEl) {
+    const title = (s && s.current) ? s.current : '—';
+    titleEl.textContent = title;
+    titleEl.setAttribute('title', title); // tooltip plein
+  }
 
-function updateStatusPanelPayload(s){
-// ---- Titre
-const titleEl = document.getElementById('s-title');
-if (titleEl) {
-  const title = (s && s.current) ? s.current : '—';
-  titleEl.textContent = title;
-  titleEl.setAttribute('title', title); // tooltip plein
-}
   // ---- État: badge + icône + texte
   const badge = document.getElementById('s-state-badge');
   const stateIcon = document.getElementById('s-state-icon');
   const stateText = document.getElementById('s-state-text');
-
   const raw = (s && s.state) ? String(s.state).toLowerCase() : 'idle';
 
-  // mapping état → icône FA + classe couleur + libellé
   const map = {
-    playing:  { icon: 'fa-circle-play',   cls: 'is-playing',  label: 'Lecture' },
-    paused:   { icon: 'fa-circle-pause',  cls: 'is-paused',   label: 'Pause' },
-    stopped:  { icon: 'fa-circle-stop',   cls: 'is-stopped',  label: 'Arrêt' },
-    opening:  { icon: 'fa-compact-disc',  cls: 'is-opening',  label: 'Ouverture' },
-    buffering:{ icon: 'fa-spinner',       cls: 'is-buffering',label: 'Buffering' },
-    ended:    { icon: 'fa-flag-checkered',cls: 'is-ended',    label: 'Terminé' },
+    playing:  { icon: 'fa-circle-play',   cls: 'is-playing',   label: 'Lecture' },
+    paused:   { icon: 'fa-circle-pause',  cls: 'is-paused',    label: 'Pause' },
+    stopped:  { icon: 'fa-circle-stop',   cls: 'is-stopped',   label: 'Arrêt' },
+    opening:  { icon: 'fa-compact-disc',  cls: 'is-opening',   label: 'Ouverture' },
+    buffering:{ icon: 'fa-spinner',       cls: 'is-buffering', label: 'Buffering' },
+    ended:    { icon: 'fa-flag-checkered',cls: 'is-ended',     label: 'Terminé' },
     error:    { icon: 'fa-triangle-exclamation', cls: 'is-error', label: 'Erreur' },
-    idle:     { icon: 'fa-circle',        cls: 'is-stopped',  label: 'Inactif' }
+    idle:     { icon: 'fa-circle',        cls: 'is-stopped',   label: 'Inactif' }
   };
   const m = map[raw] || map.idle;
 
-  if (stateIcon) {
-    stateIcon.className = `fa-solid ${m.icon}` + (raw === 'buffering' ? ' fa-spin' : '');
-  }
-  if (stateText) {
-    stateText.textContent = m.label;
-  }
-  if (badge) {
-    // nettoie les classes précédentes
-    badge.className = 'status-badge';
-    badge.classList.add(m.cls);
-  }
+  if (stateIcon) stateIcon.className = `fa-solid ${m.icon}` + (raw === 'buffering' ? ' fa-spin' : '');
+  if (stateText) stateText.textContent = m.label;
+  if (badge) { badge.className = 'status-badge'; badge.classList.add(m.cls); }
 
   // ---- Volume (% + icône adaptée)
   const volText = document.getElementById('s-vol');
@@ -333,8 +310,28 @@ if (titleEl) {
     }
     volIcon.className = `fa-solid ${vIcon}`;
   }
-    requestAnimationFrame(updateTitleOverflow);
+
+  // Recalcule le débordement du titre APRÈS mise à jour DOM
+  requestAnimationFrame(updateTitleOverflow);
 }
+
+async function syncStatusOnce() {
+  try {
+    const r = await fetchWithTimeout('/status', { method: 'GET' });
+    if (!r.ok) return;
+    const s = await r.json();
+    updatePlayPauseUI(s.state === 'playing');
+    updateStatusPanelPayload(s);
+  } catch {}
+}
+
+async function syncPlayButton() {  // rétro-compat : utilisé pour le polling
+  await syncStatusOnce();
+}
+
+// ==============================
+// Calcul du débordement (scroll au survol)
+// ==============================
 
 function updateTitleOverflow() {
   const row = document.querySelector('.status-title');
@@ -347,16 +344,17 @@ function updateTitleOverflow() {
 
   if (needsScroll) {
     const overflowPx = Math.max(0, txt.scrollWidth - scroller.clientWidth);
-    // plus rapide: ~overflow/12 (≈ 12px/s) borné 6–16 s
+    // vitesse ≈ 12 px/s (bornée 6–16 s)
     const dur = Math.max(6, Math.min(16, overflowPx / 12));
     txt.style.setProperty('--scroll-px', overflowPx + 'px');
     txt.style.setProperty('--scroll-duration', dur + 's');
+    txt.style.textOverflow = 'clip';
   } else {
     txt.style.removeProperty('--scroll-px');
     txt.style.removeProperty('--scroll-duration');
+    txt.style.textOverflow = 'ellipsis';
   }
 }
-
 
 // ==============================
 // Initialisation
@@ -370,13 +368,12 @@ document.addEventListener("DOMContentLoaded", () => {
   // Contrôles & handlers
   attachClickHandlers();
 
-  // Sync initiale du bouton Play/Pause + polling périodique
-  syncPlayButton();
-  setInterval(syncPlayButton, 3000);
+  // Sync initiale + polling périodique
+  syncStatusOnce();
+  setInterval(syncStatusOnce, 3000);
 });
 
 window.addEventListener('resize', () => {
-  // léger debounce
   clearTimeout(window.__st_overflow_t);
   window.__st_overflow_t = setTimeout(updateTitleOverflow, 100);
 });
