@@ -277,14 +277,13 @@ async function syncPlayButton() {
 }
 
 function updateStatusPanelPayload(s){
-  // ---- Titre
-  const titleEl = document.getElementById('s-title');
-  if (titleEl) {
-    const title = (s && s.current) ? s.current : '—';
-    titleEl.textContent = title;
-    titleEl.setAttribute('title', title);   // tooltip plein titre
-  }
-
+// ---- Titre
+const titleEl = document.getElementById('s-title');
+if (titleEl) {
+  const title = (s && s.current) ? s.current : '—';
+  titleEl.textContent = title;
+  titleEl.setAttribute('title', title); // tooltip plein
+}
   // ---- État: badge + icône + texte
   const badge = document.getElementById('s-state-badge');
   const stateIcon = document.getElementById('s-state-icon');
@@ -339,28 +338,25 @@ function updateStatusPanelPayload(s){
 
 function updateTitleOverflow() {
   const row = document.querySelector('.status-title');
-  const mask = document.querySelector('.status-title-mask');
+  const scroller = document.querySelector('.title-scroller');
   const txt  = document.getElementById('s-title');
-  if (!row || !mask || !txt) return;
+  if (!row || !scroller || !txt) return;
 
-  // mesure le débordement horizontal
-  const needsScroll = txt.scrollWidth > mask.clientWidth + 2; // marge anti-flap
+  const needsScroll = txt.scrollWidth > scroller.clientWidth + 2;
   row.classList.toggle('is-overflowing', needsScroll);
 
   if (needsScroll) {
-    const overflowPx = Math.max(0, txt.scrollWidth - mask.clientWidth);
-    // durée proportionnelle (8–20 s)
-    const dur = Math.max(8, Math.min(20, overflowPx / 30));
+    const overflowPx = Math.max(0, txt.scrollWidth - scroller.clientWidth);
+    // plus rapide: ~overflow/12 (≈ 12px/s) borné 6–16 s
+    const dur = Math.max(6, Math.min(16, overflowPx / 12));
     txt.style.setProperty('--scroll-px', overflowPx + 'px');
     txt.style.setProperty('--scroll-duration', dur + 's');
-    // ellipsis OFF pour le scroll (le mask fait le boulot)
-    txt.style.textOverflow = 'clip';
   } else {
     txt.style.removeProperty('--scroll-px');
     txt.style.removeProperty('--scroll-duration');
-    txt.style.textOverflow = 'ellipsis';
   }
 }
+
 
 // ==============================
 // Initialisation
