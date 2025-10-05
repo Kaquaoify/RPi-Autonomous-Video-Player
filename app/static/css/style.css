@@ -365,3 +365,74 @@ main{
   .player-toolbar{ gap:12px; }
   .status-panel{ flex-basis: 260px; }
 }
+
+/* ===== Panneau d’état “carte” ===== */
+.status-panel{
+  flex:0 1 380px;
+  max-width:560px;
+  display:flex;
+  justify-content:flex-end;
+}
+
+.status-card{
+  width:100%;
+  background:#232323;            /* un poil plus clair que var(--panel) */
+  border:1px solid #2e2e2e;
+  border-radius:12px;
+  padding:.75rem .9rem;
+  box-shadow:0 2px 10px rgba(0,0,0,.25) inset, 0 1px 0 rgba(255,255,255,.03);
+}
+
+.status-row{
+  display:flex;
+  align-items:center;
+  gap:.75rem;
+  padding:.35rem 0;
+}
+
+.status-label{
+  width:78px;
+  min-width:78px;
+  opacity:.75;
+  font-size:.92rem;
+}
+
+.status-value{
+  display:flex;
+  align-items:center;
+  gap:.6rem;
+  min-width:0;             /* pour autoriser le défilement du titre */
+}
+
+/* Titre défilant + icône film */
+.status-title{ overflow:hidden; white-space:nowrap; }
+.status-title .scrolling-text{ animation-duration: 14s; }
+.status-title i{ opacity:.8; }
+
+/* Badge d’état rond et coloré */
+.status-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:28px; height:28px;
+  border-radius:999px;
+  background:#3a3a3a;
+  border:1px solid #444;
+}
+.status-badge i{ font-size: .95rem; }
+
+/* Variantes de couleur */
+.status-badge.is-playing{  background:#133a1d; border-color:#1f5a30; color:#7cff7a; }
+.status-badge.is-paused{   background:#3a2e13; border-color:#5a471f; color:#ffd36a; }
+.status-badge.is-stopped{  background:#2f2f2f; border-color:#494949; color:#cfcfcf; }
+.status-badge.is-opening,
+.status-badge.is-buffering{ background:#112c3a; border-color:#1b465a; color:#7ad0ff; }
+.status-badge.is-ended{    background:#2a233a; border-color:#463a5a; color:#c6a7ff; }
+.status-badge.is-error{    background:#3a1515; border-color:#5a2222; color:#ff8a8a; }
+
+/* Icône volume : légère atténuation */
+#s-vol-icon{ opacity:.9; }
+
+@media (max-width: 720px){
+  .status-panel{ flex-basis: 280px; }
+}

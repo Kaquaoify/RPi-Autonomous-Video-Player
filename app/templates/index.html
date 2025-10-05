@@ -69,13 +69,34 @@
   <!-- pousse le panneau d’état à droite -->
   <div class="flex-spacer"></div>
 
-  <!-- Panneau d’état -->
-  <div class="status-panel" aria-live="polite">
-    <div class="status-title">
-      <div class="scrolling-text" id="s-title">🎬 —</div>
+<!-- Panneau d’état -->
+<div class="status-panel" aria-live="polite">
+  <div class="status-card">
+    <div class="status-row">
+      <div class="status-label">Titre</div>
+      <div class="status-value status-title">
+        <i class="fa-solid fa-film"></i>
+        <div class="scrolling-text" id="s-title">—</div>
+      </div>
     </div>
-    <div class="status-line"><span id="s-state">▶ —</span></div>
-    <div class="status-line"><span id="s-vol">🔊 —</span></div>
+
+    <div class="status-row">
+      <div class="status-label">État</div>
+      <div class="status-value">
+        <span id="s-state-badge" class="status-badge">
+          <i id="s-state-icon" class="fa-solid fa-circle-play"></i>
+        </span>
+        <span id="s-state-text">—</span>
+      </div>
+    </div>
+
+    <div class="status-row">
+      <div class="status-label">Volume</div>
+      <div class="status-value">
+        <i id="s-vol-icon" class="fa-solid fa-volume-off"></i>
+        <span id="s-vol">—</span>
+      </div>
+    </div>
   </div>
 </div>
 

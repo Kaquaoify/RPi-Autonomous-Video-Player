@@ -277,12 +277,61 @@ async function syncPlayButton() {
 }
 
 function updateStatusPanelPayload(s){
-  const t = document.getElementById('s-title');
-  const st = document.getElementById('s-state');
-  const v = document.getElementById('s-vol');
-  if (t) t.textContent = `🎬 ${s.current ?? '—'}`;
-  if (st) st.textContent = `▶ ${s.state ?? '—'}`;
-  if (v) v.textContent = `🔊 ${s.volume ?? '—'}`;
+  // ---- Titre
+  const titleEl = document.getElementById('s-title');
+  if (titleEl) {
+    titleEl.textContent = s && s.current ? s.current : '—';
+  }
+
+  // ---- État: badge + icône + texte
+  const badge = document.getElementById('s-state-badge');
+  const stateIcon = document.getElementById('s-state-icon');
+  const stateText = document.getElementById('s-state-text');
+
+  const raw = (s && s.state) ? String(s.state).toLowerCase() : 'idle';
+
+  // mapping état → icône FA + classe couleur + libellé
+  const map = {
+    playing:  { icon: 'fa-circle-play',   cls: 'is-playing',  label: 'Lecture' },
+    paused:   { icon: 'fa-circle-pause',  cls: 'is-paused',   label: 'Pause' },
+    stopped:  { icon: 'fa-circle-stop',   cls: 'is-stopped',  label: 'Arrêt' },
+    opening:  { icon: 'fa-compact-disc',  cls: 'is-opening',  label: 'Ouverture' },
+    buffering:{ icon: 'fa-spinner',       cls: 'is-buffering',label: 'Buffering' },
+    ended:    { icon: 'fa-flag-checkered',cls: 'is-ended',    label: 'Terminé' },
+    error:    { icon: 'fa-triangle-exclamation', cls: 'is-error', label: 'Erreur' },
+    idle:     { icon: 'fa-circle',        cls: 'is-stopped',  label: 'Inactif' }
+  };
+  const m = map[raw] || map.idle;
+
+  if (stateIcon) {
+    stateIcon.className = `fa-solid ${m.icon}` + (raw === 'buffering' ? ' fa-spin' : '');
+  }
+  if (stateText) {
+    stateText.textContent = m.label;
+  }
+  if (badge) {
+    // nettoie les classes précédentes
+    badge.className = 'status-badge';
+    badge.classList.add(m.cls);
+  }
+
+  // ---- Volume (% + icône adaptée)
+  const volText = document.getElementById('s-vol');
+  const volIcon = document.getElementById('s-vol-icon');
+  let vol = (s && typeof s.volume === 'number') ? Math.max(0, Math.min(100, s.volume)) : null;
+
+  if (volText) volText.textContent = (vol === null ? '—' : `${vol}%`);
+
+  if (volIcon) {
+    let vIcon = 'fa-volume-off';
+    if (vol !== null) {
+      if (vol === 0) vIcon = 'fa-volume-xmark';
+      else if (vol <= 30) vIcon = 'fa-volume-low';
+      else if (vol <= 70) vIcon = 'fa-volume';
+      else vIcon = 'fa-volume-high';
+    }
+    volIcon.className = `fa-solid ${vIcon}`;
+  }
 }
 
 
