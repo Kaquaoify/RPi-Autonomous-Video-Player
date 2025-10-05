@@ -344,8 +344,8 @@ function updateTitleOverflow() {
 
   if (needsScroll) {
     const overflowPx = Math.max(0, txt.scrollWidth - scroller.clientWidth);
-    // vitesse ≈ 12 px/s (bornée 6–16 s)
-    const dur = Math.max(6, Math.min(16, overflowPx / 12));
+    const PX_PER_SEC = 36;            // ← vitesse (px/s). Augmente pour aller plus vite.
+    const dur = Math.max(2, Math.min(8, overflowPx / PX_PER_SEC)); // bornes 2–8 s
     txt.style.setProperty('--scroll-px', overflowPx + 'px');
     txt.style.setProperty('--scroll-duration', dur + 's');
     txt.style.textOverflow = 'clip';
