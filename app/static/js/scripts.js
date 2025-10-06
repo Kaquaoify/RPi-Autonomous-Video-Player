@@ -356,6 +356,23 @@ function updateTitleOverflow() {
   }
 }
 
+function markOverflowingTitles(){
+  document.querySelectorAll('.video-item .video-title').forEach(box=>{
+    const text = box.querySelector('.scrolling-text');
+    if(!text) return;
+    const isOverflow = text.scrollWidth > box.clientWidth + 2;
+    box.classList.toggle('is-overflowing', isOverflow);
+  });
+}
+
+window.addEventListener('resize', ()=> {
+  clearTimeout(window.__vt_of_deb);
+  window.__vt_of_deb = setTimeout(markOverflowingTitles, 100);
+});
+
+document.addEventListener('DOMContentLoaded', markOverflowingTitles);
+
+
 // ==============================
 // Initialisation
 // ==============================
@@ -377,3 +394,4 @@ window.addEventListener('resize', () => {
   clearTimeout(window.__st_overflow_t);
   window.__st_overflow_t = setTimeout(updateTitleOverflow, 100);
 });
+
