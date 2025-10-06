@@ -54,6 +54,8 @@ _vlc_init_lock = threading.Lock()
 # Lecture/loop
 _end_event_attached = False  # évite de ré-attacher l'event de fin
 
+_bootstrap_once = threading.Event()
+
 
 # ==============================
 # VLC : choix d’options
@@ -865,11 +867,14 @@ def api_rclone_log():
 # ==============================
 # Hooks Flask
 # ==============================
-@app.before_first_request
-def _on_first_request():
-    # lance thumbnails + éventuel autoplay de manière non bloquante
-    ensure_thumbnails_background()
-    threading.Thread(target=_bootstrap_autoplay, daemon=True).start()
+@app.before_request
+def _run_bootstrap_once():
+    # Exécuté à CHAQUE requête, mais on ne lance le bootstrap qu'une seule fois
+    if not _bootstrap_once.is_set():
+        _bootstrap_once.set()
+        ensure_thumbnails_background()
+        threading.Thread(target=_bootstrap_autoplay, daemon=True).start()
+
 
 
 # ==============================
