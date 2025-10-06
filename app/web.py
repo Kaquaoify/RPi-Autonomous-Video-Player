@@ -321,6 +321,14 @@ def _bootstrap_startup():
     except Exception as e:
         app.logger.warning("bootstrap startup error: %s", e)
 
+_bootstrap_once = threading.Event()
+
+def _start_bootstrap_once():
+    if not _bootstrap_once.is_set():
+        _bootstrap_once.set()
+        threading.Thread(target=_bootstrap_startup, daemon=True).start()
+
+
 
 
 # ==============================
@@ -929,19 +937,6 @@ def api_rclone_log():
         return f"Erreur lecture log: {e}\n", 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 
-# ==============================
-# Hooks Flask
-# ==============================
-_bootstrap_once = threading.Event()
-
-@app.before_request
-def _run_bootstrap_once():
-    # Exécuté à chaque requête, mais on ne lance le bootstrap qu'une fois
-    if not _bootstrap_once.is_set():
-        _bootstrap_once.set()
-        threading.Thread(target=_bootstrap_startup, daemon=True).start()
-
-
 
 # ==============================
 # Main (lancement Flask)
@@ -954,5 +949,8 @@ if __name__ == "__main__":
     safe_refresh_videos(non_blocking=False)
     if videos:
         video_index = 0
+
+    # ⚡ Démarre la sync/boot immédiatement au lancement du service
+    _start_bootstrap_once()
 
     app.run(host="0.0.0.0", port=5000)
