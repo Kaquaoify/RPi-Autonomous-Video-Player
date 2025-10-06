@@ -39,9 +39,9 @@ confirm "1) Mettre à jour le système (apt update && apt upgrade)"
 sudo apt update && sudo apt upgrade -y
 sudo apt autoremove -y
 
-# 2) Installer paquets système essentiels
-confirm "2) Installer paquets système essentiels (python3, python3-venv, python3-pip, vlc, ffmpeg, git, curl, unzip, rclone)"
-sudo apt install -y python3 python3-venv python3-pip vlc ffmpeg git curl unzip rclone
+# 2) Installer paquets système essentiels (+ fbset pour con2fbmap)
+confirm "2) Installer paquets système essentiels (python3, venv, pip, vlc, vlc-plugin-base, ffmpeg, git, curl, unzip, rclone, fbset)"
+sudo apt install -y python3 python3-venv python3-pip vlc vlc-plugin-base ffmpeg git curl unzip rclone fbset
 
 # 3) Cloner ou mettre à jour le dépôt
 if [ -d "${INSTALL_DIR}/.git" ]; then
@@ -69,7 +69,6 @@ ${PYTHON_BIN} -m venv "${VENV_DIR}"
 confirm "6) Installer les dépendances Python depuis ${INSTALL_DIR}/requirements.txt (si présent)"
 source "${VENV_DIR}/bin/activate"
 pip install --upgrade pip setuptools wheel
-
 if [ -f "${INSTALL_DIR}/requirements.txt" ]; then
     pip install -r "${INSTALL_DIR}/requirements.txt"
 else
@@ -85,20 +84,28 @@ if command -v ffmpeg >/dev/null 2>&1; then
 else
     echo " - ffmpeg NON trouvé"
 fi
-
 if command -v vlc >/dev/null 2>&1; then
     echo " - vlc OK ($(vlc --version 2>/dev/null | head -n1 || true))"
 else
     echo " - vlc NON trouvé"
 fi
 
-# 8) Créer service systemd (utilise python du venv)
-confirm "8) Créer/mettre à jour le service systemd pour lancer l'application au démarrage"
+# 8) Ajouter l'utilisateur aux groupes nécessaires pour l'accès vidéo direct
+confirm "8) Ajouter l'utilisateur '${USER}' aux groupes video, render, input, audio (accès /dev/fb0 et DRM)"
+sudo usermod -aG video,render,input,audio "${USER}"
+echo "   -> Les nouveaux groupes seront effectifs pour le service systemd dès son prochain démarrage."
+
+# 9) Désactiver la console login sur TTY1 pour libérer l'affichage
+confirm "9) Désactiver getty@tty1 (libère la console HDMI pour la sortie vidéo)"
+sudo systemctl disable --now getty@tty1.service || true
+
+# 10) Créer/mettre à jour le service systemd (utilise python du venv) + TTY HDMI
+confirm "10) Créer/mettre à jour le service systemd pour lancer l'application au démarrage (prise TTY1 + framebuffer)"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}"
 
 sudo tee "${SERVICE_FILE}" > /dev/null <<EOF
 [Unit]
-Description=RPi-Autonomous-Video-Player
+Description=RPi Autonomous Video Player
 After=network-online.target sound.target
 Wants=network-online.target
 
@@ -106,12 +113,34 @@ Wants=network-online.target
 Type=simple
 User=${USER}
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=${VENV_DIR}/bin/python ${INSTALL_DIR}/app/web.py
-Restart=always
-RestartSec=3
+
+# Environnement (venv + runtime)
 Environment=PYTHONUNBUFFERED=1
 Environment=VIRTUAL_ENV=${VENV_DIR}
 Environment=PATH=${VENV_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Fournit un /run dédié et propre pour l'app
+RuntimeDirectory=rpi-avp
+RuntimeDirectoryMode=0700
+Environment=XDG_RUNTIME_DIR=/run/rpi-avp
+
+# Attacher au TTY1 (sortie HDMI via framebuffer)
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal+console
+StandardError=journal+console
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+# Basculer sur le TTY1 et mapper la console vers fb0 (fallback si binaire ailleurs)
+ExecStartPre=/bin/chvt 1
+ExecStartPre=/bin/sh -c '/usr/bin/con2fbmap 1 0 || /usr/sbin/con2fbmap 1 0 || true'
+
+# Lancement de l'app (libVLC choisira --vout=fb côté headless via le code Python)
+ExecStart=${VENV_DIR}/bin/python ${INSTALL_DIR}/app/web.py
+
+Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
@@ -127,3 +156,8 @@ echo "Service systemd: ${SERVICE_NAME}"
 echo "Pour voir le statut : sudo systemctl status ${SERVICE_NAME}"
 echo "Logs (journal) : sudo journalctl -u ${SERVICE_NAME} -f"
 echo "Interface accessible sur : http://$(hostname -I | awk '{print $1}'):5000"
+echo
+echo "Note:"
+echo "- Les droits groupes (video/render/input/audio) sont pris en compte par le service lors du (re)démarrage."
+echo "- Si jamais l'affichage HDMI ne sort pas tout de suite, refaites simplement :"
+echo "    sudo systemctl restart ${SERVICE_NAME}"
