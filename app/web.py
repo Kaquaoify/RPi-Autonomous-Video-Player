@@ -61,15 +61,13 @@ _end_event_attached = False  # évite de ré-attacher l'event de fin
 # ==============================
 def _vlc_opts_base():
     # Audio ALSA par défaut (PulseAudio souvent absent en headless)
-    return ["--no-video-title-show", "--fullscreen", "--aout=alsa", "--alsa-audio-device=default"]
+    return ["--no-video-title-show", "--fullscreen", "--aout=alsa", "--alsa-audio-device=default", "--no-tty"]
 
 
 def _vlc_opts_candidates():
-    # Si headless : tenter kms/fb sinon laisser VLC choisir
     headless = not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
     if headless:
-        return [["--vout=kmsdrm"], ["--vout=fb"], []]
-    # En environnement graphique : laisser défaut puis alternatives
+        return [["--vout=fb"], ["--vout=kmsdrm"], []]
     return [[], ["--vout=opengl"], ["--vout=xcb"]]
 
 
@@ -187,7 +185,8 @@ def set_media_by_index(idx: int) -> bool:
             media.add_option(f":sout={sout}")
             media.add_option(":sout-all")
             media.add_option(":sout-keep")
-
+            media.add_option("--fbdev=/dev/fb0")
+            
         _player.set_media(media)
         return True
     finally:
