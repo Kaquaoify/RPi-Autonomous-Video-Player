@@ -2,5 +2,6 @@
   "remote_folder": "VideosRPi",
   "preview_enabled": false,
   "autoplay": true,
-  "loop_all": true
+  "loop_all": true,
+  "sync_on_boot": true
 }

@@ -54,7 +54,6 @@ _vlc_init_lock = threading.Lock()
 # Lecture/loop
 _end_event_attached = False  # évite de ré-attacher l'event de fin
 
-_bootstrap_once = threading.Event()
 
 
 # ==============================
@@ -295,18 +294,33 @@ def _attach_end_reached(loop_all: bool = True):
 
 
 
-def _bootstrap_autoplay():
-    """Lancé au premier accès Flask : construit l'index et démarre la lecture si demandé."""
+def _bootstrap_startup():
+    """
+    Au premier démarrage de l'app:
+    1) (optionnel) sync Drive -> VIDEO_DIR
+    2) thumbnails + refresh
+    3) (optionnel) autoplay première vidéo
+    """
     try:
-        safe_refresh_videos(non_blocking=False)
-        if get_setting("autoplay", True) and videos:
-            # laisse VLC/ALSA respirer un peu au boot
-            time.sleep(0.8)
-            # charge la première et lance
+        # 1) Sync Drive si activé
+        if setting_sync_on_boot():
+            ok, msg = sync_from_settings_blocking()
+            app.logger.info("boot sync: %s", msg)
+        else:
+            # même sans sync on assure une liste propre
+            safe_refresh_videos(non_blocking=False)
+
+        # 2) thumbnails en tâche de fond si pas déjà parti (sécurité)
+        ensure_thumbnails_background()
+
+        # 3) Autoplay si demandé
+        if setting_autoplay() and get_snapshot()[0] > 0:
+            time.sleep(0.5)  # petite respiration pour ALSA/VLC
             if set_media_by_index(0):
                 _play_current()
     except Exception as e:
-        app.logger.warning("bootstrap autoplay error: %s", e)
+        app.logger.warning("bootstrap startup error: %s", e)
+
 
 
 # ==============================
@@ -344,6 +358,17 @@ def save_settings(data: dict):
 def get_setting(key, default=None):
     """Raccourci lecture d’une clé settings."""
     return load_settings().get(key, default)
+
+# Valeurs par défaut si absentes dans settings.json
+def setting_sync_on_boot() -> bool:
+    return bool(get_setting("sync_on_boot", True))
+
+def setting_autoplay() -> bool:
+    return bool(get_setting("autoplay", True))
+
+def setting_loop_all() -> bool:
+    return bool(get_setting("loop_all", True))
+
 
 
 def set_settings(**kwargs):
@@ -798,6 +823,46 @@ def api_rclone_sync():
     threading.Thread(target=_run, daemon=True).start()
     return jsonify(message=f"Sync démarrée depuis {target} → {VIDEO_DIR} (log: {RCLONE_LOG})")
 
+def sync_from_settings_blocking() -> tuple[bool, str]:
+    """
+    Lance un rclone sync BLOQUANT en lisant remote_name/remote_folder dans settings.json.
+    Écrit la sortie dans RCLONE_LOG. Retourne (ok, message).
+    """
+    rc = which_rclone()
+    if not rc:
+        return False, "rclone non installé"
+
+    rn = (get_setting("remote_name", "gdrive") or "gdrive").strip()
+    rf = (get_setting("remote_folder", "VideosRPi") or "VideosRPi").strip()
+    target = f"{rn}:{rf}" if rf else f"{rn}:"
+
+    os.makedirs(RCLONE_LOG_DIR, exist_ok=True)
+    banner = f"--- boot sync {time.ctime()} → {target} ---\n"
+
+    try:
+        with open(RCLONE_LOG, "a", encoding="utf-8") as fh:
+            fh.write(banner)
+            cmd = [rc, "sync", target, VIDEO_DIR, "--delete-during", "--fast-list"]
+            # Bloquant, on capture la sortie et on la dump (plus simple au boot)
+            p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               text=True, env=rclone_base_env())
+            fh.write(p.stdout or "")
+            fh.write(f"--- boot sync done rc={p.returncode} ---\n")
+            ok = (p.returncode == 0)
+    except Exception as e:
+        ok = False
+        with open(RCLONE_LOG, "a", encoding="utf-8") as fh:
+            fh.write(f"ERROR boot sync: {type(e).__name__}: {e}\n")
+
+    # Post-traitement local (comme ton endpoint /api/rclone/sync)
+    try:
+        generate_thumbnails(VIDEO_DIR, THUMB_DIR, VLC_START_AT)
+        safe_refresh_videos(non_blocking=False)
+    except Exception as e:
+        app.logger.warning("post-sync boot error: %s", e)
+
+    return ok, ("OK" if ok else "échec")
+
 
 @app.route("/api/rclone/config/delete", methods=["POST"])
 def api_rclone_config_delete():
@@ -867,13 +932,14 @@ def api_rclone_log():
 # ==============================
 # Hooks Flask
 # ==============================
+_bootstrap_once = threading.Event()
+
 @app.before_request
 def _run_bootstrap_once():
-    # Exécuté à CHAQUE requête, mais on ne lance le bootstrap qu'une seule fois
+    # Exécuté à chaque requête, mais on ne lance le bootstrap qu'une fois
     if not _bootstrap_once.is_set():
         _bootstrap_once.set()
-        ensure_thumbnails_background()
-        threading.Thread(target=_bootstrap_autoplay, daemon=True).start()
+        threading.Thread(target=_bootstrap_startup, daemon=True).start()
 
 
 
