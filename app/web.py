@@ -1,5 +1,5 @@
 # app/web.py
-from flask import Flask, render_template, request, jsonify, send_from_directory, make_response
+from flask import Flask, render_template, request, jsonify, send_from_directory
 import os
 import threading
 import time
@@ -55,7 +55,7 @@ _vlc_init_lock = threading.Lock()
 # VLC : choix d’options
 # ==============================
 def _vlc_opts_base():
-    # Mode silencieux et plein écran, audio ALSA (headless)
+    # Mode silencieux, plein écran, ALSA (headless)
     return [
         "--intf", "dummy",
         "--quiet",
@@ -64,14 +64,20 @@ def _vlc_opts_base():
         "--fullscreen",
         "--aout=alsa",
         "--alsa-audio-device=default",
-        # sortie vidéo framebuffer/KMS (on testera plusieurs candidats)
-        "--fbdev=/dev/fb0",
+        "--no-xlib",
     ]
 
 def _vlc_opts_candidates():
+    # IMPORTANT : --fbdev=/dev/fb0 uniquement avec vout fb/fbdirect
     headless = not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
     if headless:
-        return [["--vout=drm"], ["--vout=fbdirect"], ["--vout=fb"], []]  # on laisse plusieurs chances
+        return [
+            ["--vout=drm"],                         # KMS/DRM (recommandé)
+            ["--vout=fb",       "--fbdev=/dev/fb0"],
+            ["--vout=fbdirect", "--fbdev=/dev/fb0"],
+            [],                                       # dernier recours
+        ]
+    # Si une session graphique existe
     return [[], ["--vout=opengl"], ["--vout=xcb"]]
 
 def ensure_vlc_ready() -> bool:
@@ -92,6 +98,12 @@ def ensure_vlc_ready() -> bool:
                 mlp = inst.media_list_player_new()
                 mlp.set_media_list(mlist)
                 mlp.set_playback_mode(vlc.PlaybackMode.loop)  # boucle continue
+                # Pose un volume par défaut sur le MediaPlayer interne
+                try:
+                    ply = mlp.get_media_player()
+                    ply.audio_set_volume(80)
+                except Exception:
+                    pass
 
                 _instance = inst
                 _mlist = mlist
@@ -147,6 +159,7 @@ def safe_refresh_videos(non_blocking: bool = True, timeout: float = 0.2):
     finally:
         videos_lock.release()
 
+# --- Aperçu: helpers settings + nettoyage ---
 def is_preview_enabled() -> bool:
     return bool(get_setting("preview_enabled", False))
 
@@ -160,7 +173,6 @@ def _media_for_path(path: str):
     """Crée un Media avec (optionnel) duplication HLS pour l’aperçu."""
     m = _instance.media_new(path)
     if is_preview_enabled():
-        clear_hls_dir()  # s’assure que le dossier est propre
         index_path = HLS_INDEX
         seg_path_tmpl = os.path.join(HLS_DIR, "seg-########.ts")
         index_url = "/hls/seg-########.ts"
@@ -275,7 +287,6 @@ def _play_current():
     if not ensure_vlc_ready():
         return False
     try:
-        # sélectionne et lit l’index courant
         _set_playlist_from_current_videos()
         _mlp.play_item_at_index(video_index)
         return True
@@ -431,10 +442,6 @@ def remove_remote_in_conf(remote_name: str):
     except Exception as e:
         return False, f"Erreur édition conf: {type(e).__name__}: {e}"
 
-# --- Aperçu: helpers settings + nettoyage ---
-def set_preview_enabled(val: bool):
-    set_settings(preview_enabled=bool(val))
-
 # ==============================
 # Routes UI
 # ==============================
@@ -482,7 +489,6 @@ def control(action):
     if action == "play":
         if not ensure_media_loaded():
             return jsonify(status="error", message=f"VLC not ready: {_last_vlc_error}"), 500
-        # relance l’élément courant
         _mlp.play_item_at_index(video_index)
     elif action == "pause":
         if not ensure_vlc_ready():
@@ -557,7 +563,6 @@ def play_video():
         return jsonify(status="error", message=f"VLC not ready: {_last_vlc_error}"), 500
 
     video_index = idx
-    # Jouer directement l’élément choisi
     _mlp.play_item_at_index(video_index)
     app.logger.info("Now playing index=%d name=%s", video_index, video_name)
     return jsonify(status="playing", video=video_name)
@@ -668,7 +673,7 @@ def api_rclone_install():
         ), 200
     return jsonify(message="rclone installé/mis à jour.", output=out, code=code)
 
-@app.route("/api/rclone/settings", methods=["GET", "POST"] )
+@app.route("/api/rclone/settings", methods=["GET", "POST"])
 def api_rclone_settings():
     """Lecture/écriture de remote_name & remote_folder."""
     if request.method == "GET":
