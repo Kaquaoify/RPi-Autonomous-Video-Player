@@ -244,18 +244,18 @@ def ensure_media_loaded():
 # ======== Lecture enchaînée & autoplay ========
 
 def _play_current():
-    """Lecture de l’élément courant sans détruire la sortie vidéo (pas de stop())."""
+    """Lecture de l’élément courant sans libérer la sortie vidéo (pas de stop())."""
     if not ensure_vlc_ready():
         return False
     try:
-        
-        ok = _player.play()
+        # IMPORTANT : ne pas stopper entre deux médias
+        # sinon le vout est détruit et le TTY/logs réapparaît brièvement.
         try:
-
-            _player.set_fullscreen(True)
+            _player.set_fullscreen(True)  # ceinture et bretelles
         except Exception:
             pass
-        return bool(ok)
+        _player.play()
+        return True
     except Exception:
         return False
 
