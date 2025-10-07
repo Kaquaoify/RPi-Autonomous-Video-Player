@@ -29,7 +29,6 @@ HLS_DIR = os.path.join(USER_HOME, ".local", "share", "rpi-avp", "hls")
 HLS_INDEX = os.path.join(HLS_DIR, "index.m3u8")
 os.makedirs(HLS_DIR, exist_ok=True)
 
-
 # ==============================
 # État global (liste vidéos, VLC, miniatures)
 # ==============================
@@ -45,39 +44,36 @@ _snapshot_current = videos[0] if videos else None
 _thumb_thread_started = False
 _thumb_thread_lock = threading.Lock()
 
-# VLC : init paresseuse (ne bloque pas Flask)
-_instance = None
-_player = None
+# VLC : instance + MediaListPlayer uniques
+_instance = None            # vlc.Instance
+_mlist = None               # vlc.MediaList
+_mlp = None                 # vlc.MediaListPlayer
+_player = None              # MediaPlayer interne (volume/état)
 _last_vlc_error = None
 _vlc_init_lock = threading.Lock()
 
-# Lecture/loop
-_end_event_attached = False  # évite de ré-attacher l'event de fin
-
-
-
 # ==============================
-# VLC : choix d’options
+# VLC : choix d’options (identiques à ta base actuelle)
 # ==============================
 def _vlc_opts_base():
     # Audio ALSA par défaut (PulseAudio souvent absent en headless)
+    # NOTE: on garde fbdev exactement comme dans ta version.
     return ["--no-video-title-show", "--fullscreen", "--aout=alsa", "--alsa-audio-device=default", "--fbdev=/dev/fb0"]
-
 
 def _vlc_opts_candidates():
     headless = not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
     if headless:
+        # On garde l’ordre fb -> kmsdrm -> default comme chez toi.
         return [["--vout=fb"], ["--vout=kmsdrm"], []]
     return [[], ["--vout=opengl"], ["--vout=xcb"]]
 
-
 def ensure_vlc_ready() -> bool:
-    """Init VLC si besoin. Ne bloque pas le serveur."""
-    global _instance, _player, _last_vlc_error, _end_event_attached
-    if _player is not None:
+    """Init VLC + MediaListPlayer si besoin."""
+    global _instance, _mlist, _mlp, _player, _last_vlc_error
+    if _mlp is not None and _player is not None:
         return True
     with _vlc_init_lock:
-        if _player is not None:
+        if _mlp is not None and _player is not None:
             return True
         base = _vlc_opts_base()
         for extra in _vlc_opts_candidates():
@@ -85,29 +81,30 @@ def ensure_vlc_ready() -> bool:
             try:
                 app.logger.info("VLC init try: %s", " ".join(opts) or "(default)")
                 inst = vlc.Instance(*opts)
-                ply = inst.media_player_new()
+                mlist = inst.media_list_new([])
+                mlp = inst.media_list_player_new()
+                mlp.set_media_list(mlist)
+                mlp.set_playback_mode(
+                    vlc.PlaybackMode.loop if get_setting("loop_all", True) else vlc.PlaybackMode.default
+                )
+                ply = mlp.get_media_player()
                 try:
                     ply.audio_set_volume(80)
                 except Exception:
                     pass
+
                 _instance = inst
+                _mlist = mlist
+                _mlp = mlp
                 _player = ply
                 _last_vlc_error = None
-                app.logger.info("VLC init success.")
-                # attache l'event "fin de média" une seule fois
-                if not _end_event_attached:
-                    _attach_end_reached(loop_all=get_setting("loop_all", True))
-                    _end_event_attached = True
+                app.logger.info("VLC init success (MediaListPlayer).")
                 return True
             except Exception as e:
                 _last_vlc_error = f"{type(e).__name__}: {e}"
-                app.logger.warning(
-                    "VLC init failed with opts %s -> %s",
-                    " ".join(opts) or "(default)", _last_vlc_error
-                )
+                app.logger.warning("VLC init failed with opts %s -> %s", " ".join(opts) or "(default)", _last_vlc_error)
         app.logger.error("VLC init impossible avec les options testées.")
         return False
-
 
 # ==============================
 # Helpers thread-safe & non bloquants
@@ -118,7 +115,6 @@ def _update_snapshot():
     with _snapshot_lock:
         _snapshot_videos_count = len(videos)
         _snapshot_current = videos[video_index] if 0 <= video_index < len(videos) else None
-
 
 def _acquire(lock: threading.RLock, timeout: float) -> bool:
     """Acquire avec timeout (fallback pour anciennes versions)."""
@@ -131,7 +127,6 @@ def _acquire(lock: threading.RLock, timeout: float) -> bool:
                 return True
             time.sleep(0.01)
         return False
-
 
 def safe_refresh_videos(non_blocking: bool = True, timeout: float = 0.2):
     """Rafraîchit la liste sans bloquer indéfiniment."""
@@ -146,52 +141,60 @@ def safe_refresh_videos(non_blocking: bool = True, timeout: float = 0.2):
     try:
         videos = refresh_videos_list(VIDEO_DIR)
         _update_snapshot()
+        # Si VLC est prêt, on (re)construit la MediaList pour refléter la liste à l’écran
+        if _mlp is not None and _instance is not None:
+            _rebuild_playlist_from_videos()
     finally:
         videos_lock.release()
 
+# --- Aperçu: helpers settings + nettoyage ---
+def is_preview_enabled() -> bool:
+    return bool(get_setting("preview_enabled", False))
 
-def set_media_by_index(idx: int) -> bool:
-    """Charge la vidéo d’index idx dans VLC (+sout HLS si aperçu activé)."""
-    global _player, videos
-    if not ensure_vlc_ready():
-        return False
-    if not _acquire(videos_lock, 0.2):
-        app.logger.warning("set_media_by_index: lock busy, abort")
-        return False
+def set_preview_enabled(val: bool):
+    set_settings(preview_enabled=bool(val))
+
+def clear_hls_dir():
     try:
-        if not videos or idx < 0 or idx >= len(videos):
-            return False
-
-        path = os.path.join(VIDEO_DIR, videos[idx])
-        media = _instance.media_new(path)
-
-        # ⬇️ Duplique vers un flux HLS si l’aperçu est activé
-        if is_preview_enabled():
-            clear_hls_dir()  # on repart propre
-            # VLC écrit les segments/playlist ici, et Flask les sert via /hls/...
-            index_path = HLS_INDEX
-            seg_path_tmpl = os.path.join(HLS_DIR, "seg-########.ts")
-            # index-url est l’URL web que verra le navigateur
-            index_url = "/hls/seg-########.ts"
-
-            sout = (
-                f"#duplicate{{dst=display,"
-                f"dst=std{{access=livehttp{{"
-                f"seglen=2,delsegs=true,numsegs=5,"
-                f"index={index_path},index-url={index_url}"
-                f"}}"
-                f",mux=ts{{use-key-frames}},dst={seg_path_tmpl}}}}}"
-            )
-            media.add_option(f":sout={sout}")
-            media.add_option(":sout-all")
-            media.add_option(":sout-keep")
-
-        _player.set_media(media)
-        return True
+        shutil.rmtree(HLS_DIR, ignore_errors=True)
     finally:
-        _update_snapshot()
-        videos_lock.release()
+        os.makedirs(HLS_DIR, exist_ok=True)
 
+def _build_media(path: str):
+    """Crée un Media (avec duplication HLS si l’aperçu est activé)."""
+    m = _instance.media_new(path)
+    if is_preview_enabled():
+        # IMPORTANT: on ne vide pas HLS ici (uniquement quand on active/désactive).
+        index_path = HLS_INDEX
+        seg_path_tmpl = os.path.join(HLS_DIR, "seg-########.ts")
+        index_url = "/hls/seg-########.ts"
+        sout = (
+            f"#duplicate{{dst=display,"
+            f"dst=std{{access=livehttp{{seglen=2,delsegs=true,numsegs=5,"
+            f"index={index_path},index-url={index_url}}},"
+            f"mux=ts{{use-key-frames}},dst={seg_path_tmpl}}}}}"
+        )
+        m.add_option(f":sout={sout}")
+        m.add_option(":sout-all")
+        m.add_option(":sout-keep")
+    return m
+
+def _rebuild_playlist_from_videos():
+    """Reconstruit la MediaList à partir de `videos` (sans lancer la lecture)."""
+    global _mlist
+    if _instance is None or _mlp is None:
+        return
+    new_list = _instance.media_list_new([])
+    # copie sans lock long
+    if _acquire(videos_lock, 0.2):
+        try:
+            for name in videos:
+                path = os.path.join(VIDEO_DIR, name)
+                new_list.add_media(_build_media(path))
+        finally:
+            videos_lock.release()
+    _mlist = new_list
+    _mlp.set_media_list(_mlist)
 
 def ensure_thumbnails_background():
     """Lance une unique génération de miniatures en arrière-plan."""
@@ -204,13 +207,12 @@ def ensure_thumbnails_background():
         target=generate_thumbnails, args=(VIDEO_DIR, THUMB_DIR, VLC_START_AT), daemon=True
     ).start()
 
-
 def get_vlc_state_str():
     """Retourne l’état VLC (texte)."""
-    if _player is None:
+    if _mlp is None:
         return "uninitialized"
     try:
-        st = _player.get_state()
+        st = _mlp.get_state()
     except Exception:
         return "error"
     mapping = {
@@ -225,81 +227,52 @@ def get_vlc_state_str():
     }
     return mapping.get(st, str(st))
 
-
 def get_snapshot():
     """Renvoie (count, nom_courant) sans lock long."""
     with _snapshot_lock:
         return _snapshot_videos_count, _snapshot_current
 
-
 def ensure_media_loaded():
-    """Charge une vidéo si aucune n’est prête."""
+    """S’assure qu’une playlist existe et qu’un média est prêt."""
     if not ensure_vlc_ready():
         return False
-    if _player.get_media() is None:
-        return set_media_by_index(max(0, min(video_index, len(videos) - 1))) if videos else False
+    if len(videos) == 0:
+        return False
+    if _mlist is None:
+        _rebuild_playlist_from_videos()
     return True
 
-
-# ======== Lecture enchaînée & autoplay ========
-
+# ======== Lecture enchaînée & autoplay (fluide via MediaListPlayer) ========
 def _play_current():
-    """Lecture de l’élément courant sans libérer la sortie vidéo (pas de stop())."""
+    """Joue l’élément courant sans libérer la sortie vidéo."""
     if not ensure_vlc_ready():
         return False
     try:
-        # IMPORTANT : ne pas stopper entre deux médias
-        # sinon le vout est détruit et le TTY/logs réapparaît brièvement.
+        _mlp.play_item_at_index(video_index)
+        # Ceinture et bretelles
         try:
-            _player.set_fullscreen(True)  # ceinture et bretelles
+            _player.set_fullscreen(True)
         except Exception:
             pass
-        _player.play()
         return True
     except Exception:
         return False
 
-
 def _play_next_loop():
-    """Passe à la vidéo suivante en boucle."""
+    """Passe à la vidéo suivante en boucle (géré par _mlp)."""
     global video_index
     cnt, _ = get_snapshot()
     if cnt == 0:
         return
     video_index = (video_index + 1) % cnt
-    if set_media_by_index(video_index):
-        _play_current()
-
-
-def _attach_end_reached(loop_all: bool = True):
-    """Attache l'événement 'fin de média' pour chaîner sur la suivante."""
-    if not ensure_vlc_ready():
-        return
-    try:
-        em = _player.event_manager()
-    except Exception as e:
-        app.logger.warning("event_manager() failed: %s", e)
-        return
-
-    def _on_end(event):
-        if loop_all:
-            # Déporter dans un thread court pour ne pas bloquer le callback VLC
-            threading.Thread(target=_play_next_loop, daemon=True).start()
-
-    try:
-        em.event_attach(vlc.EventType.MediaPlayerEndReached, _on_end)
-        app.logger.info("VLC MediaPlayerEndReached attached (loop_all=%s)", loop_all)
-    except Exception as e:
-        app.logger.warning("attach_end_reached failed: %s", e)
-
-
+    _mlp.play_item_at_index(video_index)
 
 def _bootstrap_startup():
     """
     Au premier démarrage de l'app:
     1) (optionnel) sync Drive -> VIDEO_DIR
     2) thumbnails + refresh
-    3) (optionnel) autoplay première vidéo
+    3) (optionnel) autoplay
     """
     try:
         # 1) Sync Drive si activé
@@ -307,29 +280,25 @@ def _bootstrap_startup():
             ok, msg = sync_from_settings_blocking()
             app.logger.info("boot sync: %s", msg)
         else:
-            # même sans sync on assure une liste propre
             safe_refresh_videos(non_blocking=False)
 
-        # 2) thumbnails en tâche de fond si pas déjà parti (sécurité)
+        # 2) thumbnails en tâche de fond
         ensure_thumbnails_background()
 
         # 3) Autoplay si demandé
         if setting_autoplay() and get_snapshot()[0] > 0:
             time.sleep(0.5)  # petite respiration pour ALSA/VLC
-            if set_media_by_index(0):
-                _play_current()
+            # playlist up-to-date
+            _rebuild_playlist_from_videos()
+            _mlp.play_item_at_index(0)
     except Exception as e:
         app.logger.warning("bootstrap startup error: %s", e)
 
 _bootstrap_once = threading.Event()
-
 def _start_bootstrap_once():
     if not _bootstrap_once.is_set():
         _bootstrap_once.set()
         threading.Thread(target=_bootstrap_startup, daemon=True).start()
-
-
-
 
 # ==============================
 # rclone : fichiers & utilitaires
@@ -339,7 +308,6 @@ SETTINGS_PATH = os.path.join(APP_ROOT, "settings.json")
 RCLONE_LOG_DIR = os.path.join(USER_HOME, ".local", "share", "rpi-avp")
 RCLONE_LOG = os.path.join(RCLONE_LOG_DIR, "rclone_sync.log")
 os.makedirs(RCLONE_LOG_DIR, exist_ok=True)
-
 
 def load_settings():
     """Lit settings.json (dict)."""
@@ -352,7 +320,6 @@ def load_settings():
         app.logger.warning("load_settings error: %s", e)
     return {}
 
-
 def save_settings(data: dict):
     """Écrit settings.json."""
     try:
@@ -361,7 +328,6 @@ def save_settings(data: dict):
             json.dump(data, f, indent=2, ensure_ascii=False)
     except Exception as e:
         app.logger.warning("save_settings error: %s", e)
-
 
 def get_setting(key, default=None):
     """Raccourci lecture d’une clé settings."""
@@ -377,14 +343,11 @@ def setting_autoplay() -> bool:
 def setting_loop_all() -> bool:
     return bool(get_setting("loop_all", True))
 
-
-
 def set_settings(**kwargs):
     """Merge & sauvegarde des settings."""
     cfg = load_settings()
     cfg.update(kwargs)
     save_settings(cfg)
-
 
 def run_cmd(cmd_list, timeout=30, env=None):
     """Exécute une commande et capture stdout/err."""
@@ -399,23 +362,19 @@ def run_cmd(cmd_list, timeout=30, env=None):
     except Exception as e:
         return 1, f"Error: {type(e).__name__}: {e}"
 
-
 def which_rclone():
     """Chemin du binaire rclone (ou None)."""
     return shutil.which("rclone")
 
-
 def rclone_conf_path():
     """Chemin ~/.config/rclone/rclone.conf."""
     return os.path.join(USER_HOME, ".config", "rclone", "rclone.conf")
-
 
 def rclone_base_env():
     """Env propre (HOME correct pour systemd)."""
     env = os.environ.copy()
     env["HOME"] = USER_HOME
     return env
-
 
 def remove_remote_in_conf(remote_name: str):
     """Supprime [remote_name] dans rclone.conf (avec backup)."""
@@ -449,21 +408,6 @@ def remove_remote_in_conf(remote_name: str):
         return True, f"Section supprimée (backup: {backup})"
     except Exception as e:
         return False, f"Erreur édition conf: {type(e).__name__}: {e}"
-    
-# --- Aperçu: helpers settings + nettoyage ---
-def is_preview_enabled() -> bool:
-    return bool(get_setting("preview_enabled", False))
-
-def set_preview_enabled(val: bool):
-    set_settings(preview_enabled=bool(val))
-
-def clear_hls_dir():
-    try:
-        shutil.rmtree(HLS_DIR, ignore_errors=True)
-    finally:
-        os.makedirs(HLS_DIR, exist_ok=True)
-
-
 
 # ==============================
 # Routes UI
@@ -483,18 +427,15 @@ def index():
             videos_lock.release()
     return render_template("index.html", videos=lst)
 
-
 @app.route("/settings")
 def settings_page():
     """Page paramètres rapides."""
     return render_template("settings.html")
 
-
 @app.route("/favicon.ico")
 def favicon():
     """Pas de favicon dédiée."""
     return ("", 204)
-
 
 @app.route("/thumbnails/<filename>")
 def thumbnails(filename):
@@ -502,7 +443,6 @@ def thumbnails(filename):
     if not os.path.isdir(THUMB_DIR):
         return ("", 404)
     return send_from_directory(THUMB_DIR, filename)
-
 
 # ==============================
 # API VLC
@@ -517,25 +457,21 @@ def control(action):
     if action == "play":
         if not ensure_media_loaded():
             return jsonify(status="error", message=f"VLC not ready: {_last_vlc_error}"), 500
-        _player.play()
+        _mlp.play_item_at_index(video_index)
     elif action == "pause":
         if not ensure_vlc_ready():
             return jsonify(status="error", message="VLC not ready"), 500
-        _player.pause()
+        _mlp.pause()
     elif action == "next":
         if count == 0:
             return jsonify(status="error", message="No videos"), 400
         video_index = (video_index + 1) % max(1, count)
-        if not set_media_by_index(video_index):
-            return jsonify(status="error", message=f"Failed to set media: {_last_vlc_error}"), 500
-        _play_current()
+        _mlp.play_item_at_index(video_index)
     elif action == "prev":
         if count == 0:
             return jsonify(status="error", message="No videos"), 400
         video_index = (video_index - 1) % max(1, count)
-        if not set_media_by_index(video_index):
-            return jsonify(status="error", message=f"Failed to set media: {_last_vlc_error}"), 500
-        _play_current()
+        _mlp.play_item_at_index(video_index)
     elif action == "volup":
         if not ensure_vlc_ready():
             return jsonify(status="error", message="VLC not ready"), 500
@@ -556,7 +492,6 @@ def control(action):
         return jsonify(status="error", message="Unknown action"), 400
 
     return jsonify(status="ok", action=action)
-
 
 @app.route("/play-video", methods=["POST"])
 def play_video():
@@ -589,14 +524,13 @@ def play_video():
         app.logger.warning("Video not found (non-blocking): %s", video_name)
         return jsonify(status="error", message="Video not found"), 404
 
-    video_index = idx
-    if not set_media_by_index(video_index):
-        return jsonify(status="error", message=f"Failed to set media: {_last_vlc_error}"), 500
+    if not ensure_media_loaded():
+        return jsonify(status="error", message=f"VLC not ready: {_last_vlc_error}"), 500
 
-    _play_current()
+    video_index = idx
+    _mlp.play_item_at_index(video_index)
     app.logger.info("Now playing index=%d name=%s", video_index, video_name)
     return jsonify(status="playing", video=video_name)
-
 
 @app.route("/status")
 def status():
@@ -612,17 +546,15 @@ def status():
         volume=vol,
         state=get_vlc_state_str(),
         current=cur,
-        vlc_ready=(_player is not None),
+        vlc_ready=(_mlp is not None),
         vlc_error=_last_vlc_error,
     ), 200
-
 
 @app.route("/status_min")
 def status_min():
     """Statut minimal (léger)."""
     cnt, cur = get_snapshot()
     return jsonify(ok=True, videos=cnt, current=cur), 200
-
 
 @app.route("/health")
 def health():
@@ -648,32 +580,27 @@ def api_preview_status():
 
 @app.route("/api/preview/enable", methods=["POST"])
 def api_preview_enable():
+    if not ensure_vlc_ready():
+        return jsonify(error="VLC not ready"), 500
     set_preview_enabled(True)
     clear_hls_dir()
-    # recharge le média courant pour (ré)appliquer le sout
+    # Reconstruit la playlist pour (ré)appliquer le sout et relit l'item courant
     if get_snapshot()[0] > 0:
-        try:
-            _player.stop()
-        except Exception:
-            pass
-        if set_media_by_index(max(0, min(video_index, len(videos)-1))):
-            _player.play()
+        _rebuild_playlist_from_videos()
+        _mlp.play_item_at_index(max(0, min(video_index, len(videos)-1)))
     return jsonify(ok=True, url="/hls/index.m3u8")
 
 @app.route("/api/preview/disable", methods=["POST"])
 def api_preview_disable():
+    if not ensure_vlc_ready():
+        return jsonify(error="VLC not ready"), 500
     set_preview_enabled(False)
-    # recharge le média courant pour retirer le sout
+    # Reconstruit sans sout et relit l'item courant, puis nettoie HLS
     if get_snapshot()[0] > 0:
-        try:
-            _player.stop()
-        except Exception:
-            pass
-        if set_media_by_index(max(0, min(video_index, len(videos)-1))):
-            _player.play()
+        _rebuild_playlist_from_videos()
+        _mlp.play_item_at_index(max(0, min(video_index, len(videos)-1)))
     clear_hls_dir()
     return jsonify(ok=True)
-
 
 # ==============================
 # UI rclone
@@ -682,7 +609,6 @@ def api_preview_disable():
 def rclone_page():
     """Assistant de configuration rclone."""
     return render_template("rclone_setup.html")
-
 
 # ==============================
 # API rclone
@@ -700,7 +626,6 @@ def api_rclone_check():
             info["remotes"] = [x.strip().rstrip(":") for x in out2.splitlines() if x.strip()]
     return jsonify(info)
 
-
 @app.route("/api/rclone/install", methods=["POST"])
 def api_rclone_install():
     """Tentative d’installation/MAJ rclone (sudo requis)."""
@@ -712,7 +637,6 @@ def api_rclone_install():
             output=out, code=code
         ), 200
     return jsonify(message="rclone installé/mis à jour.", output=out, code=code)
-
 
 @app.route("/api/rclone/settings", methods=["GET", "POST"])
 def api_rclone_settings():
@@ -727,7 +651,6 @@ def api_rclone_settings():
     rf = (data.get("remote_folder") or "VideosRPi").strip()
     set_settings(remote_name=rn, remote_folder=rf)
     return jsonify(ok=True)
-
 
 @app.route("/api/rclone/config/create", methods=["POST"])
 def api_rclone_config_create():
@@ -784,7 +707,6 @@ def api_rclone_config_create():
 
     return jsonify(message=f"Remote '{rn}' {'mis à jour' if exists else 'créé'}.", output=out, code=code)
 
-
 @app.route("/api/rclone/config/test", methods=["POST"])
 def api_rclone_config_test():
     """Test de connexion sur le dossier (lsd)."""
@@ -798,7 +720,6 @@ def api_rclone_config_test():
     if code != 0:
         return jsonify(error=f"lsd {target} a échoué", output=out, code=code), 400
     return jsonify(message=f"Connexion OK sur {target}", output=out, code=0)
-
 
 @app.route("/api/rclone/sync", methods=["POST"])
 def api_rclone_sync():
@@ -871,7 +792,6 @@ def sync_from_settings_blocking() -> tuple[bool, str]:
 
     return ok, ("OK" if ok else "échec")
 
-
 @app.route("/api/rclone/config/delete", methods=["POST"])
 def api_rclone_config_delete():
     """Supprime un remote rclone (sans toucher aux fichiers)."""
@@ -921,7 +841,6 @@ def api_rclone_config_delete():
 
     return jsonify(message=f"Remote '{rn}' supprimé.", output=out, code=code)
 
-
 @app.route("/api/rclone/log")
 def api_rclone_log():
     """Renvoie la fin du log rclone (texte brut)."""
@@ -935,8 +854,6 @@ def api_rclone_log():
         return txt, 200, {"Content-Type": "text/plain; charset=utf-8"}
     except Exception as e:
         return f"Erreur lecture log: {e}\n", 200, {"Content-Type": "text/plain; charset=utf-8"}
-
-
 
 # ==============================
 # Main (lancement Flask)
