@@ -244,16 +244,18 @@ def ensure_media_loaded():
 # ======== Lecture enchaînée & autoplay ========
 
 def _play_current():
-    """Stop + Play robustes sur le média déjà chargé."""
+    """Lecture de l’élément courant sans détruire la sortie vidéo (pas de stop())."""
     if not ensure_vlc_ready():
         return False
     try:
-        _player.stop()
-    except Exception:
-        pass
-    try:
-        _player.play()
-        return True
+        
+        ok = _player.play()
+        try:
+
+            _player.set_fullscreen(True)
+        except Exception:
+            pass
+        return bool(ok)
     except Exception:
         return False
 
