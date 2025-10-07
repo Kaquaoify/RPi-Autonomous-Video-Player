@@ -44,23 +44,21 @@ _snapshot_current = videos[0] if videos else None
 _thumb_thread_started = False
 _thumb_thread_lock = threading.Lock()
 
-# VLC : instance + DEUX lecteurs (A/B) pour switch sans “flash”
-_instance = None            # vlc.Instance
-_player_a = None            # vlc.MediaPlayer
-_player_b = None            # vlc.MediaPlayer
-_active_is_a = True         # True -> on joue sur A, False -> sur B
+# VLC : instance unique + un seul MediaPlayer (stable)
+_instance = None
+_player = None
 _last_vlc_error = None
 _vlc_init_lock = threading.Lock()
 
 # Lecture/loop
-_end_event_attached = False  # uniquement pour le player actif
+_end_event_attached = False  # évite de ré-attacher l'event de fin
 
 # ==============================
-# VLC : choix d’options (on garde ta base)
+# VLC : choix d’options (identiques à ta base)
 # ==============================
 def _vlc_opts_base():
     # Audio ALSA par défaut (PulseAudio souvent absent en headless)
-    # Important: on garde fbdev comme dans ta version stable (tu avais HDMI ok avec ça).
+    # On garde la sortie framebuffer + plein écran comme avant
     return [
         "--no-video-title-show",
         "--fullscreen",
@@ -72,46 +70,17 @@ def _vlc_opts_base():
 def _vlc_opts_candidates():
     headless = not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
     if headless:
-        # Même ordre qu’avant: fb -> kmsdrm -> défaut
+        # Ordre inchangé: fb -> kmsdrm -> défaut
         return [["--vout=fb"], ["--vout=kmsdrm"], []]
     return [[], ["--vout=opengl"], ["--vout=xcb"]]
 
-# ==============================
-# Helpers internes VLC (double player)
-# ==============================
-def _active_player():
-    return _player_a if _active_is_a else _player_b
-
-def _inactive_player():
-    return _player_b if _active_is_a else _player_a
-
-def _swap_players():
-    global _active_is_a
-    _active_is_a = not _active_is_a
-
-def _attach_end_event(ply):
-    global _end_event_attached
-    try:
-        em = ply.event_manager()
-    except Exception as e:
-        app.logger.warning("event_manager() failed: %s", e)
-        return
-    def _on_end(event):
-        # Passe à la suivante sans relâcher la sortie vidéo
-        threading.Thread(target=_play_next_crossfade, daemon=True).start()
-    try:
-        em.event_attach(vlc.EventType.MediaPlayerEndReached, _on_end)
-        _end_event_attached = True
-    except Exception as e:
-        app.logger.warning("attach_end_reached failed: %s", e)
-
 def ensure_vlc_ready() -> bool:
-    """Init VLC + 2 MediaPlayer si besoin (idempotent)."""
-    global _instance, _player_a, _player_b, _last_vlc_error, _end_event_attached
-    if _player_a is not None and _player_b is not None:
+    """Init VLC si besoin. Ne bloque pas le serveur."""
+    global _instance, _player, _last_vlc_error, _end_event_attached
+    if _player is not None:
         return True
     with _vlc_init_lock:
-        if _player_a is not None and _player_b is not None:
+        if _player is not None:
             return True
         base = _vlc_opts_base()
         for extra in _vlc_opts_candidates():
@@ -119,21 +88,19 @@ def ensure_vlc_ready() -> bool:
             try:
                 app.logger.info("VLC init try: %s", " ".join(opts) or "(default)")
                 inst = vlc.Instance(*opts)
-                pa = inst.media_player_new()
-                pb = inst.media_player_new()
+                ply = inst.media_player_new()
                 try:
-                    pa.audio_set_volume(80)
-                    pb.audio_set_volume(80)
+                    ply.audio_set_volume(80)
                 except Exception:
                     pass
                 _instance = inst
-                _player_a = pa
-                _player_b = pb
+                _player = ply
                 _last_vlc_error = None
-                app.logger.info("VLC init success (dual players).")
-                # attache l'event fin sur le player actif
+                app.logger.info("VLC init success.")
+                # attache l'event "fin de média" une seule fois
                 if not _end_event_attached:
-                    _attach_end_event(_active_player())
+                    _attach_end_reached(loop_all=get_setting("loop_all", True))
+                    _end_event_attached = True
                 return True
             except Exception as e:
                 _last_vlc_error = f"{type(e).__name__}: {e}"
@@ -189,203 +156,6 @@ RCLONE_LOG_DIR = os.path.join(USER_HOME, ".local", "share", "rpi-avp")
 RCLONE_LOG = os.path.join(RCLONE_LOG_DIR, "rclone_sync.log")
 os.makedirs(RCLONE_LOG_DIR, exist_ok=True)
 
-def is_preview_enabled() -> bool:
-    return bool(get_setting("preview_enabled", False))
-
-def set_preview_enabled(val: bool):
-    set_settings(preview_enabled=bool(val))
-
-def clear_hls_dir():
-    try:
-        shutil.rmtree(HLS_DIR, ignore_errors=True)
-    finally:
-        os.makedirs(HLS_DIR, exist_ok=True)
-
-def _media_for_index(idx: int):
-    """Crée un Media pour l’index donné (+ HLS si activé)."""
-    path = os.path.join(VIDEO_DIR, videos[idx])
-    m = _instance.media_new(path)
-    if is_preview_enabled():
-        # IMPORTANT: on ne vide pas HLS ici (on le fait seulement à enable/disable)
-        index_path = HLS_INDEX
-        seg_path_tmpl = os.path.join(HLS_DIR, "seg-########.ts")
-        index_url = "/hls/seg-########.ts"
-        sout = (
-            f"#duplicate{{dst=display,"
-            f"dst=std{{access=livehttp{{seglen=2,delsegs=true,numsegs=5,"
-            f"index={index_path},index-url={index_url}}},"
-            f"mux=ts{{use-key-frames}},dst={seg_path_tmpl}}}}}"
-        )
-        m.add_option(f":sout={sout}")
-        m.add_option(":sout-all")
-        m.add_option(":sout-keep")
-    return m
-
-def ensure_thumbnails_background():
-    """Lance une unique génération de miniatures en arrière-plan."""
-    global _thumb_thread_started
-    with _thumb_thread_lock:
-        if _thumb_thread_started:
-            return
-        _thumb_thread_started = True
-    threading.Thread(
-        target=generate_thumbnails, args=(VIDEO_DIR, THUMB_DIR, VLC_START_AT), daemon=True
-    ).start()
-
-def get_vlc_state_str():
-    """Retourne l’état VLC (texte)."""
-    ply = _active_player()
-    if ply is None:
-        return "uninitialized"
-    try:
-        st = ply.get_state()
-    except Exception:
-        return "error"
-    mapping = {
-        vlc.State.NothingSpecial: "idle",
-        vlc.State.Opening: "opening",
-        vlc.State.Buffering: "buffering",
-        vlc.State.Playing: "playing",
-        vlc.State.Paused: "paused",
-        vlc.State.Stopped: "stopped",
-        vlc.State.Ended: "ended",
-        vlc.State.Error: "error",
-    }
-    return mapping.get(st, str(st))
-
-def get_snapshot():
-    """Renvoie (count, nom_courant) sans lock long."""
-    with _snapshot_lock:
-        return _snapshot_videos_count, _snapshot_current
-
-def ensure_media_loaded():
-    """Charge une vidéo si aucune n’est prête."""
-    if not ensure_vlc_ready():
-        return False
-    if not videos:
-        return False
-    # Si aucun des lecteurs n’a de média, charge l’index courant sur l’actif
-    ply = _active_player()
-    try:
-        if ply.get_media() is None:
-            m = _media_for_index(max(0, min(video_index, len(videos)-1)))
-            ply.set_media(m)
-    except Exception:
-        pass
-    return True
-
-# ======== Switch sans flash (A/B) ========
-def _play_on(ply, idx: int) -> bool:
-    """Assigne le média idx sur ply et lance play (plein écran)"""
-    try:
-        m = _media_for_index(idx)
-        ply.set_media(m)
-        ok = ply.play()
-        try:
-            ply.set_fullscreen(True)
-        except Exception:
-            pass
-        return bool(ok)
-    except Exception as e:
-        app.logger.warning(f"_play_on error: {e}")
-        return False
-
-def _play_next_crossfade():
-    """Passe à la vidéo suivante en lançant d’abord sur le player inactif puis en stoppant l’actif."""
-    global video_index, _end_event_attached
-    if not ensure_vlc_ready():
-        return
-    cnt, _ = get_snapshot()
-    if cnt == 0:
-        return
-    next_idx = (video_index + 1) % cnt
-    act = _active_player()
-    ina = _inactive_player()
-
-    # 1) Lancer sur le lecteur inactif
-    if not _play_on(ina, next_idx):
-        return
-    # 2) légère latence pour laisser le vout accrocher (évite le flash)
-    time.sleep(0.05)
-    # 3) Stop l’ancien lecteur
-    try:
-        act.stop()
-    except Exception:
-        pass
-    # 4) bascule
-    _swap_players()
-    video_index = next_idx
-
-    # 5) ré-attacher l’event fin sur le nouveau player actif (une seule fois)
-    try:
-        _attach_end_event(_active_player())
-    except Exception:
-        pass
-
-def _play_current():
-    """Lecture index courant via double player (sans libérer la sortie vidéo)."""
-    if not ensure_vlc_ready() or not videos:
-        return False
-    # On lance sur inactif d’abord (pour éviter tout “trou”), puis on coupe l’actif
-    act = _active_player()
-    ina = _inactive_player()
-    ok = _play_on(ina, video_index)
-    if not ok:
-        return False
-    time.sleep(0.05)
-    try:
-        act.stop()
-    except Exception:
-        pass
-    _swap_players()
-    # s’assurer que l’event fin est bien posé sur le nouveau player actif
-    try:
-        _attach_end_event(_active_player())
-    except Exception:
-        pass
-    return True
-
-# ==============================
-# Bootstrapping (sync + thumbs + autoplay)
-# ==============================
-def _bootstrap_startup():
-    """
-    Au premier démarrage de l'app:
-    1) (optionnel) sync Drive -> VIDEO_DIR
-    2) thumbnails + refresh
-    3) (optionnel) autoplay première vidéo
-    """
-    try:
-        # 1) Sync Drive si activé
-        if setting_sync_on_boot():
-            ok, msg = sync_from_settings_blocking()
-            app.logger.info("boot sync: %s", msg)
-        else:
-            # même sans sync on assure une liste propre
-            safe_refresh_videos(non_blocking=False)
-
-        # 2) thumbnails en tâche de fond
-        ensure_thumbnails_background()
-
-        # 3) Autoplay si demandé
-        if setting_autoplay() and get_snapshot()[0] > 0:
-            time.sleep(0.5)  # petite respiration pour ALSA/VLC
-            # play index 0 en “crossfade” (même si rien ne jouait avant)
-            global video_index
-            video_index = 0
-            _play_current()
-    except Exception as e:
-        app.logger.warning("bootstrap startup error: %s", e)
-
-_bootstrap_once = threading.Event()
-def _start_bootstrap_once():
-    if not _bootstrap_once.is_set():
-        _bootstrap_once.set()
-        threading.Thread(target=_bootstrap_startup, daemon=True).start()
-
-# ==============================
-# rclone : fichiers & utilitaires
-# ==============================
 def load_settings():
     """Lit settings.json (dict)."""
     try:
@@ -410,13 +180,11 @@ def get_setting(key, default=None):
     """Raccourci lecture d’une clé settings."""
     return load_settings().get(key, default)
 
-# Valeurs par défaut si absentes dans settings.json
+# Valeurs par défaut si absentes
 def setting_sync_on_boot() -> bool:
     return bool(get_setting("sync_on_boot", True))
-
 def setting_autoplay() -> bool:
     return bool(get_setting("autoplay", True))
-
 def setting_loop_all() -> bool:
     return bool(get_setting("loop_all", True))
 
@@ -486,6 +254,188 @@ def remove_remote_in_conf(remote_name: str):
     except Exception as e:
         return False, f"Erreur édition conf: {type(e).__name__}: {e}"
 
+# -------- Aperçu: helpers settings + nettoyage ----------
+def is_preview_enabled() -> bool:
+    return bool(get_setting("preview_enabled", False))
+def set_preview_enabled(val: bool):
+    set_settings(preview_enabled=bool(val))
+def clear_hls_dir():
+    try:
+        shutil.rmtree(HLS_DIR, ignore_errors=True)
+    finally:
+        os.makedirs(HLS_DIR, exist_ok=True)
+
+# ==============================
+# Gestion VLC (UN SEUL player) — transitions sans “flash”
+# ==============================
+def _apply_preview_options(media):
+    """Ajoute le sout HLS si l’aperçu web est activé (sans clear HLS ici)."""
+    if not is_preview_enabled():
+        return
+    index_path = HLS_INDEX
+    seg_path_tmpl = os.path.join(HLS_DIR, "seg-########.ts")
+    index_url = "/hls/seg-########.ts"
+    sout = (
+        f"#duplicate{{dst=display,"
+        f"dst=std{{access=livehttp{{seglen=2,delsegs=true,numsegs=5,"
+        f"index={index_path},index-url={index_url}}},"
+        f"mux=ts{{use-key-frames}},dst={seg_path_tmpl}}}}}"
+    )
+    media.add_option(f":sout={sout}")
+    media.add_option(":sout-all")
+    media.add_option(":sout-keep")
+
+def set_media_by_index(idx: int) -> bool:
+    """
+    Charge la vidéo d’index idx dans VLC (ajoute sout HLS si nécessaire).
+    NE FAIT PAS stop() — on veut garder la surface vidéo active.
+    """
+    global _player, videos
+    if not ensure_vlc_ready():
+        return False
+    if not _acquire(videos_lock, 0.2):
+        app.logger.warning("set_media_by_index: lock busy, abort")
+        return False
+    try:
+        if not videos or idx < 0 or idx >= len(videos):
+            return False
+        path = os.path.join(VIDEO_DIR, videos[idx])
+        media = _instance.media_new(path)
+        _apply_preview_options(media)
+        _player.set_media(media)
+        return True
+    finally:
+        _update_snapshot()
+        videos_lock.release()
+
+def ensure_thumbnails_background():
+    """Lance une unique génération de miniatures en arrière-plan."""
+    global _thumb_thread_started
+    with _thumb_thread_lock:
+        if _thumb_thread_started:
+            return
+        _thumb_thread_started = True
+    threading.Thread(
+        target=generate_thumbnails, args=(VIDEO_DIR, THUMB_DIR, VLC_START_AT), daemon=True
+    ).start()
+
+def get_vlc_state_str():
+    """Retourne l’état VLC (texte)."""
+    if _player is None:
+        return "uninitialized"
+    try:
+        st = _player.get_state()
+    except Exception:
+        return "error"
+    mapping = {
+        vlc.State.NothingSpecial: "idle",
+        vlc.State.Opening: "opening",
+        vlc.State.Buffering: "buffering",
+        vlc.State.Playing: "playing",
+        vlc.State.Paused: "paused",
+        vlc.State.Stopped: "stopped",
+        vlc.State.Ended: "ended",
+        vlc.State.Error: "error",
+    }
+    return mapping.get(st, str(st))
+
+def get_snapshot():
+    """Renvoie (count, nom_courant) sans lock long."""
+    with _snapshot_lock:
+        return _snapshot_videos_count, _snapshot_current
+
+def ensure_media_loaded():
+    """Charge une vidéo si aucune n’est prête."""
+    if not ensure_vlc_ready():
+        return False
+    if _player.get_media() is None:
+        return set_media_by_index(max(0, min(video_index, len(videos) - 1))) if videos else False
+    return True
+
+# ======== Lecture enchaînée & autoplay ========
+def _play_current():
+    """
+    Démarre la lecture du média chargé SANS stop() -> pas de flash/console.
+    """
+    if not ensure_vlc_ready():
+        return False
+    try:
+        _player.play()
+        try:
+            _player.set_fullscreen(True)
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+def _play_next_loop():
+    """
+    Passe à la vidéo suivante SANS libérer la sortie vidéo :
+    on remplace directement le Media sur le même player puis play().
+    """
+    global video_index
+    cnt, _ = get_snapshot()
+    if cnt == 0:
+        return
+    video_index = (video_index + 1) % cnt
+    # Charger le prochain média et jouer de suite (pas de stop())
+    if set_media_by_index(video_index):
+        _play_current()
+
+def _attach_end_reached(loop_all: bool = True):
+    """Attache l'événement 'fin de média' pour chaîner sur la suivante."""
+    if not ensure_vlc_ready():
+        return
+    try:
+        em = _player.event_manager()
+    except Exception as e:
+        app.logger.warning("event_manager() failed: %s", e)
+        return
+
+    def _on_end(event):
+        if loop_all:
+            threading.Thread(target=_play_next_loop, daemon=True).start()
+
+    try:
+        em.event_attach(vlc.EventType.MediaPlayerEndReached, _on_end)
+        app.logger.info("VLC MediaPlayerEndReached attached (loop_all=%s)", loop_all)
+    except Exception as e:
+        app.logger.warning("attach_end_reached failed: %s", e)
+
+def _bootstrap_startup():
+    """
+    Au premier démarrage de l'app:
+    1) (optionnel) sync Drive -> VIDEO_DIR
+    2) thumbnails + refresh
+    3) (optionnel) autoplay première vidéo
+    """
+    try:
+        # 1) Sync Drive si activé
+        if setting_sync_on_boot():
+            ok, msg = sync_from_settings_blocking()
+            app.logger.info("boot sync: %s", msg)
+        else:
+            # même sans sync on assure une liste propre
+            safe_refresh_videos(non_blocking=False)
+
+        # 2) thumbnails en tâche de fond si pas déjà parti (sécurité)
+        ensure_thumbnails_background()
+
+        # 3) Autoplay si demandé
+        if setting_autoplay() and get_snapshot()[0] > 0:
+            time.sleep(0.5)  # petite respiration pour ALSA/VLC
+            if set_media_by_index(0):
+                _play_current()
+    except Exception as e:
+        app.logger.warning("bootstrap startup error: %s", e)
+
+_bootstrap_once = threading.Event()
+def _start_bootstrap_once():
+    if not _bootstrap_once.is_set():
+        _bootstrap_once.set()
+        threading.Thread(target=_bootstrap_startup, daemon=True).start()
+
 # ==============================
 # Routes UI
 # ==============================
@@ -534,43 +484,35 @@ def control(action):
     if action == "play":
         if not ensure_media_loaded():
             return jsonify(status="error", message=f"VLC not ready: {_last_vlc_error}"), 500
-        # Reprend la lecture sur le player actif (ne repart pas de zéro)
-        try:
-            _active_player().play()
-        except Exception:
-            return jsonify(status="error", message="play failed"), 500
+        _play_current()
     elif action == "pause":
         if not ensure_vlc_ready():
             return jsonify(status="error", message="VLC not ready"), 500
-        try:
-            _active_player().pause()
-        except Exception:
-            return jsonify(status="error", message="pause failed"), 500
+        _player.pause()
     elif action == "next":
         if count == 0:
             return jsonify(status="error", message="No videos"), 400
-        _play_next_crossfade()
+        _play_next_loop()
     elif action == "prev":
         if count == 0:
             return jsonify(status="error", message="No videos"), 400
-        # recule l’index, puis lance via crossfade
         video_index = (video_index - 1) % max(1, count)
-        # Pour forcer la lecture du bon index: on déclenche comme un “current”
-        _play_current()
+        if set_media_by_index(video_index):
+            _play_current()
     elif action == "volup":
         if not ensure_vlc_ready():
             return jsonify(status="error", message="VLC not ready"), 500
         try:
-            vol = int(_active_player().audio_get_volume() or 0)
-            _active_player().audio_set_volume(min(vol + VLC_AUDIO_VOLUME_STEP, 100))
+            vol = int(_player.audio_get_volume() or 0)
+            _player.audio_set_volume(min(vol + VLC_AUDIO_VOLUME_STEP, 100))
         except Exception:
             pass
     elif action == "voldown":
         if not ensure_vlc_ready():
             return jsonify(status="error", message="VLC not ready"), 500
         try:
-            vol = int(_active_player().audio_get_volume() or 0)
-            _active_player().audio_set_volume(max(vol - VLC_AUDIO_VOLUME_STEP, 0))
+            vol = int(_player.audio_get_volume() or 0)
+            _player.audio_set_volume(max(vol - VLC_AUDIO_VOLUME_STEP, 0))
         except Exception:
             pass
     else:
@@ -609,15 +551,11 @@ def play_video():
         app.logger.warning("Video not found (non-blocking): %s", video_name)
         return jsonify(status="error", message="Video not found"), 404
 
-    if not ensure_media_loaded():
-        return jsonify(status="error", message=f"VLC not ready: {_last_vlc_error}"), 500
-
-    # Fixe l’index ciblé et lance via crossfade (sans flash)
     video_index = idx
-    ok = _play_current()
-    if not ok:
-        return jsonify(status="error", message="Failed to start video"), 500
+    if not set_media_by_index(video_index):
+        return jsonify(status="error", message=f"Failed to set media: {_last_vlc_error}"), 500
 
+    _play_current()
     app.logger.info("Now playing index=%d name=%s", video_index, video_name)
     return jsonify(status="playing", video=video_name)
 
@@ -626,7 +564,7 @@ def status():
     """Statut complet (ne doit pas bloquer)."""
     cnt, cur = get_snapshot()
     try:
-        vol = _active_player().audio_get_volume() if _active_player() is not None else None
+        vol = _player.audio_get_volume() if _player is not None else None
     except Exception:
         vol = None
     return jsonify(
@@ -635,7 +573,7 @@ def status():
         volume=vol,
         state=get_vlc_state_str(),
         current=cur,
-        vlc_ready=(_active_player() is not None),
+        vlc_ready=(_player is not None),
         vlc_error=_last_vlc_error,
     ), 200
 
@@ -667,18 +605,21 @@ def api_preview_status():
 
 @app.route("/api/preview/enable", methods=["POST"])
 def api_preview_enable():
-    if not ensure_vlc_ready():
-        return jsonify(error="VLC not ready"), 500
     set_preview_enabled(True)
     clear_hls_dir()
-    # rien d’autre: les nouveaux médias auront le sout; l’ancien continue sans trou
+    # recharge le média courant pour (ré)appliquer le sout
+    if get_snapshot()[0] > 0:
+        if set_media_by_index(max(0, min(video_index, len(videos)-1))):
+            _play_current()
     return jsonify(ok=True, url="/hls/index.m3u8")
 
 @app.route("/api/preview/disable", methods=["POST"])
 def api_preview_disable():
-    if not ensure_vlc_ready():
-        return jsonify(error="VLC not ready"), 500
     set_preview_enabled(False)
+    # recharge le média courant pour retirer le sout
+    if get_snapshot()[0] > 0:
+        if set_media_by_index(max(0, min(video_index, len(videos)-1))):
+            _play_current()
     clear_hls_dir()
     return jsonify(ok=True)
 
@@ -746,7 +687,7 @@ def api_rclone_config_create():
     client_secret = (data.get("client_secret") or "").strip()
     token_raw = (data.get("token_json") or "").strip()
     if not token_raw:
-        return jsonify(error=f"Token JSON manquant (utilisez rclone authorize \"drive\")"), 400
+        return jsonify(error='Token JSON manquant (utilisez rclone authorize "drive")'), 400
 
     # Valide & minifie le token (évite CR/LF parasites)
     try:
