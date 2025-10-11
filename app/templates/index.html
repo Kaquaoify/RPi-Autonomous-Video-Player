@@ -128,7 +128,7 @@
             <div class="thumbnail">
               <!-- La miniature est servie par /thumbnails/<base>.png -->
               <img
-                src="{{ url_for('thumbnails', filename=base ~ '.png') }}"
+                src="{{ url_for('legacy.thumbnails', filename=base ~ '.png') }}"
                 alt="{{ video }}"
                 class="video-thumb">
             </div>
