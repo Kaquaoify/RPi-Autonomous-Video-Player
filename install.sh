@@ -1,110 +1,163 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
-# =========================
-#  Config par défaut (editables via variables d'env)
-# =========================
-REPO_URL="${REPO_URL:-https://github.com/Kaquaoify/RPi-Autonomous-Video-Player.git}"
-BRANCH="${BRANCH:-main}"
-APP_DIR="${APP_DIR:-$HOME/RPi-Autonomous-Video-Player}"
-VENV_DIR="${VENV_DIR:-$APP_DIR/venv}"
-SERVICE_NAME="${SERVICE_NAME:-rpi-avp.service}"
-SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}"
-PY_BIN="${PY_BIN:-python3}"
+# install.sh (interactif)
+# Installe l'application RPi-Autonomous-Video-Player et ses dépendances sur un RPi Ubuntu.
 
-echo "[install] REPO_URL=${REPO_URL}"
-echo "[install] BRANCH=${BRANCH}"
-echo "[install] APP_DIR=${APP_DIR}"
-echo "[install] VENV_DIR=${VENV_DIR}"
-echo "[install] SERVICE=${SERVICE_PATH}"
+APP_NAME="RPi-Autonomous-Video-Player"
+GIT_USER="kaquaoify"
+REPO_URL="https://github.com/${GIT_USER}/${APP_NAME}.git"
+
+USER_HOME="/home/$USER"
+INSTALL_DIR="${USER_HOME}/${APP_NAME}"
+VIDEO_DIR="${USER_HOME}/Videos/${APP_NAME}"
+THUMB_DIR="${VIDEO_DIR}/thumbnails"
+VENV_DIR="${INSTALL_DIR}/venv"
+SERVICE_NAME="rpi-avp.service"
+PYTHON_BIN="python3"
+PIP_BIN="pip3"
+
+confirm() {
+    local prompt="$1"
+    while true; do
+        read -r -p "${prompt} (y/n) : " yn
+        case "$yn" in
+            [Yy]* ) break ;;
+            [Nn]* ) echo "Annulation par l'utilisateur."; exit 1 ;;
+            * ) echo "Merci de répondre par y (oui) ou n (non)." ;;
+        esac
+    done
+}
+
+echo "=== Installation de ${APP_NAME} ==="
+echo "Utilisateur : $USER"
+echo "Répertoire d'installation : ${INSTALL_DIR}"
 echo
 
-# =========================
-#  Dépendances système
-# =========================
-echo "[install] Installation des paquets système requis…"
-sudo apt-get update -y
-sudo apt-get install -y git ${PY_BIN}-venv ${PY_BIN}-dev ffmpeg vlc rclone
+# 1) Mise à jour système
+confirm "1) Mettre à jour le système (apt update && apt upgrade)"
+sudo apt update && sudo apt upgrade -y
+sudo apt autoremove -y
 
-# =========================
-#  Clonage / Mise à jour du dépôt
-# =========================
-if [ -d "${APP_DIR}/.git" ]; then
-  echo "[install] Repo déjà présent → mise à jour…"
-  git -C "${APP_DIR}" fetch --all
-  git -C "${APP_DIR}" checkout "${BRANCH}"
-  git -C "${APP_DIR}" pull --ff-only origin "${BRANCH}"
+# 2) Installer paquets système essentiels (+ fbset pour con2fbmap)
+confirm "2) Installer paquets système essentiels (python3, venv, pip, vlc, vlc-plugin-base, ffmpeg, git, curl, unzip, rclone, fbset)"
+sudo apt install -y python3 python3-venv python3-pip vlc vlc-plugin-base ffmpeg git curl unzip rclone fbset
+
+# 3) Cloner ou mettre à jour le dépôt
+if [ -d "${INSTALL_DIR}/.git" ]; then
+    confirm "3) Mettre à jour le dépôt (${INSTALL_DIR}) depuis GitHub"
+    cd "${INSTALL_DIR}"
+    git fetch --all --prune
+    git reset --hard origin/main || true
+    git pull --rebase origin main || true
 else
-  echo "[install] Clonage du dépôt…"
-  git clone --branch "${BRANCH}" --depth 1 "${REPO_URL}" "${APP_DIR}"
+    confirm "3) Cloner le dépôt depuis ${REPO_URL} vers ${INSTALL_DIR}"
+    git clone "${REPO_URL}" "${INSTALL_DIR}"
 fi
 
-# =========================
-#  Environnement virtuel + requirements
-# =========================
-if [ ! -d "${VENV_DIR}" ]; then
-  echo "[install] Création du venv…"
-  "${PY_BIN}" -m venv "${VENV_DIR}"
+# 4) Créer dossiers vidéos / miniatures
+confirm "4) Créer le dossier vidéos et thumbnails (${VIDEO_DIR})"
+mkdir -p "${VIDEO_DIR}"
+mkdir -p "${THUMB_DIR}"
+sudo chown -R "${USER}:${USER}" "${VIDEO_DIR}" "${THUMB_DIR}" "${INSTALL_DIR}"
+
+# 5) Créer virtualenv Python
+confirm "5) Créer l'environnement virtuel Python (venv) dans ${VENV_DIR}"
+${PYTHON_BIN} -m venv "${VENV_DIR}"
+
+# 6) Installer dépendances Python dans le venv
+confirm "6) Installer les dépendances Python depuis ${INSTALL_DIR}/requirements.txt (si présent)"
+source "${VENV_DIR}/bin/activate"
+pip install --upgrade pip setuptools wheel
+if [ -f "${INSTALL_DIR}/requirements.txt" ]; then
+    pip install -r "${INSTALL_DIR}/requirements.txt"
+else
+    echo "Aucun requirements.txt trouvé dans ${INSTALL_DIR}. Installation minimale : flask, python-vlc, pillow"
+    pip install flask python-vlc pillow
+fi
+deactivate
+
+# 7) Vérification ffmpeg / vlc / python-vlc
+echo "7) Vérifications rapides :"
+if command -v ffmpeg >/dev/null 2>&1; then
+    echo " - ffmpeg OK ($(ffmpeg -version | head -n1))"
+else
+    echo " - ffmpeg NON trouvé"
+fi
+if command -v vlc >/dev/null 2>&1; then
+    echo " - vlc OK ($(vlc --version 2>/dev/null | head -n1 || true))"
+else
+    echo " - vlc NON trouvé"
 fi
 
-echo "[install] MAJ pip + install requirements…"
-"${VENV_DIR}/bin/pip" install --upgrade pip
-if [ ! -f "${APP_DIR}/requirements.txt" ]; then
-  echo "[install] ERREUR: requirements.txt introuvable dans ${APP_DIR}" >&2
-  exit 1
-fi
-"${VENV_DIR}/bin/pip" install -r "${APP_DIR}/requirements.txt"
+# 8) Ajouter l'utilisateur aux groupes nécessaires pour l'accès vidéo direct
+confirm "8) Ajouter l'utilisateur '${USER}' aux groupes video, render, input, audio (accès /dev/fb0 et DRM)"
+sudo usermod -aG video,render,input,audio "${USER}"
+echo "   -> Les nouveaux groupes seront effectifs pour le service systemd dès son prochain démarrage."
 
-# =========================
-#  Unité systemd (mode module)
-# =========================
-echo "[install] Écriture de l’unité systemd…"
-CURRENT_USER="$(id -un)"
-sudo tee "${SERVICE_PATH}" >/dev/null <<UNIT
+# 9) Désactiver la console login sur TTY1 pour libérer l'affichage
+confirm "9) Désactiver getty@tty1 (libère la console HDMI pour la sortie vidéo)"
+sudo systemctl disable --now getty@tty1.service || true
+
+# 10) Créer/mettre à jour le service systemd (utilise python du venv) + TTY HDMI
+confirm "10) Créer/mettre à jour le service systemd pour lancer l'application au démarrage (prise TTY1 + framebuffer)"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}"
+
+sudo tee "${SERVICE_FILE}" > /dev/null <<EOF
 [Unit]
 Description=RPi Autonomous Video Player
-After=network-online.target
+After=network-online.target sound.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-# Dossier racine du repo (contient app/)
-WorkingDirectory=${APP_DIR}
+User=${USER}
+WorkingDirectory=${INSTALL_DIR}
 
-# Préparer la console FB (optionnel, non bloquant)
+# Environnement (venv + runtime)
+Environment=PYTHONUNBUFFERED=1
+Environment=VIRTUAL_ENV=${VENV_DIR}
+Environment=PATH=${VENV_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Fournit un /run dédié et propre pour l'app
+RuntimeDirectory=rpi-avp
+RuntimeDirectoryMode=0700
+Environment=XDG_RUNTIME_DIR=/run/rpi-avp
+
+# Attacher au TTY1 (sortie HDMI via framebuffer)
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal+console
+StandardError=journal+console
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+# Basculer sur le TTY1 et mapper la console vers fb0 (fallback si binaire ailleurs)
 ExecStartPre=/bin/chvt 1
 ExecStartPre=/bin/sh -c '/usr/bin/con2fbmap 1 0 || /usr/sbin/con2fbmap 1 0 || true'
 
-# Lancement en MODE MODULE (permet les imports relatifs: from . import …)
+# Lancement de l'app (libVLC choisira --vout=fb côté headless via le code Python)
 ExecStart=${VENV_DIR}/bin/python -m app.main
 
-# Expose les variables si besoin
-Environment=FLASK_HOST=0.0.0.0
-Environment=FLASK_PORT=5000
-# Environment=FLASK_DEBUG=1
-
 Restart=always
-RestartSec=2
-User=${CURRENT_USER}
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
-UNIT
+EOF
 
-# =========================
-#  Activer & démarrer
-# =========================
-echo "[install] Activation + (re)démarrage du service…"
 sudo systemctl daemon-reload
 sudo systemctl enable "${SERVICE_NAME}"
-sudo systemctl restart "${SERVICE_NAME}"
+sudo systemctl restart "${SERVICE_NAME}" || true
 
 echo
-echo "[install] Statut:"
-sudo systemctl status "${SERVICE_NAME}" --no-pager -l || true
-
+echo "=== Installation terminée ==="
+echo "Service systemd: ${SERVICE_NAME}"
+echo "Pour voir le statut : sudo systemctl status ${SERVICE_NAME}"
+echo "Logs (journal) : sudo journalctl -u ${SERVICE_NAME} -f"
+echo "Interface accessible sur : http://$(hostname -I | awk '{print $1}'):5000"
 echo
-IP_ADDRS="$(hostname -I || true)"
-echo "[install] ✅ Terminé."
-echo "[install] Healthcheck local :  curl -s http://127.0.0.1:5000/health"
-echo "[install] UI depuis le LAN  :  http://${IP_ADDRS%% *}:5000/"
+echo "Note:"
+echo "- Les droits groupes (video/render/input/audio) sont pris en compte par le service lors du (re)démarrage."
+echo "- Si jamais l'affichage HDMI ne sort pas tout de suite, refaites simplement :"
+echo "    sudo systemctl restart ${SERVICE_NAME}"
