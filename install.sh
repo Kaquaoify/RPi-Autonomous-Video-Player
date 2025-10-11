@@ -137,7 +137,7 @@ ExecStartPre=/bin/chvt 1
 ExecStartPre=/bin/sh -c '/usr/bin/con2fbmap 1 0 || /usr/sbin/con2fbmap 1 0 || true'
 
 # Lancement de l'app (libVLC choisira --vout=fb côté headless via le code Python)
-ExecStart=${VENV_DIR}/bin/python ${INSTALL_DIR}/app/web.py
+ExecStart=${VENV_DIR}/bin/python ${INSTALL_DIR}/app/main.py
 
 Restart=always
 RestartSec=3
