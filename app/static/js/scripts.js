@@ -1,145 +1,68 @@
-// --- Helpers HTTP ---
-async function jget(url) {
-  const r = await fetch(url, { cache: "no-store" });
-  if (!r.ok) throw new Error("GET " + url + " -> " + r.status);
-  return r.json();
-}
-async function jpost(url, body) {
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : "{}",
-  });
-  if (!r.ok) throw new Error("POST " + url + " -> " + r.status);
-  return r.json();
-}
+// app/static/js/scripts.js
 
-// --- DOM refs ---
-const elVideoList   = () => document.getElementById("video-list");
-const elBtnPlay     = () => document.getElementById("btn-playpause");
-const elPrevToggle  = () => document.getElementById("preview-toggle");
-const elPrevWrap    = () => document.getElementById("preview-wrap");
-const elPrevVideo   = () => document.getElementById("preview-video");
-const elPrevVol     = () => document.getElementById("preview-vol");
-const elTitle       = () => document.getElementById("s-title");
-const elStateBadge  = () => document.getElementById("s-state-badge");
-const elStateIcon   = () => document.getElementById("s-state-icon");
-const elStateText   = () => document.getElementById("s-state-text");
-const elVolIcon     = () => document.getElementById("s-vol-icon");
-const elVolText     = () => document.getElementById("s-vol");
+// ==============================
+// Constantes
+// ==============================
 
-// --- State ---
-let LAST_STATE = "idle";
-let POLL_TIMER = null;
-let HLS_OBJ = null;
+const FETCH_TIMEOUT_MS = 8000;
 
-// --- Status helpers ---
-function setStateUI(state) {
-  LAST_STATE = state;
-  elStateText().textContent = state;
-  // badge color/icon
-  let icon = "fa-circle-play";
-  let badgeBg = "#222";
-  let badgeBorder = "#333";
-  if (state === "playing") { icon = "fa-circle-play"; badgeBg = "#143b14"; }
-  else if (state === "paused") { icon = "fa-circle-pause"; badgeBg = "#2a2a0f"; }
-  else if (state === "stopped") { icon = "fa-stop"; }
-  else if (state === "buffering" || state === "opening") { icon = "fa-spinner"; }
-  else if (state === "ended") { icon = "fa-circle-check"; }
-  else if (state === "error") { icon = "fa-triangle-exclamation"; badgeBg = "#3b1414"; }
+// 1x1 PNG transparent (placeholder local, pas de fichier statique requis)
+const PLACEHOLDER_THUMB =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
 
-  elStateIcon().className = "fa-solid " + icon;
-  elStateBadge().style.background = badgeBg;
-  elStateBadge().style.borderColor = badgeBorder;
+// ==============================
+// Utilitaires
+// ==============================
 
-  // Play/pause toggle
-  if (state === "playing") {
-    elBtnPlay().dataset.action = "pause";
-    elBtnPlay().title = "Pause";
-    elBtnPlay().innerHTML = '<i class="fa-solid fa-pause"></i>';
-  } else {
-    elBtnPlay().dataset.action = "play";
-    elBtnPlay().title = "Lecture";
-    elBtnPlay().innerHTML = '<i class="fa-solid fa-play"></i>';
+function log(...args) { console.log("[RPi-AVP]", ...args); }
+
+// fetch avec timeout (AbortController)
+async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(id);
+    return res;
+  } catch (err) {
+    clearTimeout(id);
+    throw err;
   }
 }
 
-function setTitleUI(name) {
-  elTitle().textContent = name || "—";
-  elTitle().title = name || "—";
+// parse JSON sans casser le flux si la réponse n'est pas JSON
+async function parseJsonSafe(res) {
+  try { return await res.json(); } catch { return null; }
 }
 
-function setVolumeUI(volume, muted) {
-  elVolText().textContent = muted ? "muet" : (volume ?? "—");
-  elVolIcon().className = "fa-solid " + (muted ? "fa-volume-xmark" :
-    (volume >= 66 ? "fa-volume-high" : volume >= 33 ? "fa-volume-low" : "fa-volume-off"));
-}
+// ==============================
+// API: commandes VLC & lecture
+// ==============================
 
-// --- Poll /status ---
-async function pollStatus() {
+async function sendAction(action) {
   try {
-    const s = await jget("/status");
-    setStateUI(s.state || "idle");
-    setTitleUI(s.current_name || s.loaded_name || "—");
-    setVolumeUI(s.volume || 0, !!s.muted);
-  } catch (e) {
-    setStateUI("error");
-  }
-}
-
-function startPolling() {
-  clearInterval(POLL_TIMER);
-  POLL_TIMER = setInterval(pollStatus, 1500);
-  pollStatus();
-}
-
-// --- Populate video list ---
-async function loadVideoList() {
-  try {
-    const j = await jget("/control/videos");
-    if (!j.ok) return;
-    const items = j.items || [];
-    const list = elVideoList();
-    list.innerHTML = "";
-    for (const it of items) {
-      const div = document.createElement("div");
-      div.className = "video-item";
-      div.dataset.name = it.name;
-
-      const thumb = document.createElement("div");
-      thumb.className = "thumbnail";
-      const img = document.createElement("img");
-      img.className = "video-thumb";
-      img.alt = it.name;
-      img.loading = "lazy";
-      img.src = (window.thumbUrl ? window.thumbUrl(it.name) : ("/thumbnails/" + it.name + ".jpg"));
-      thumb.appendChild(img);
-
-      const title = document.createElement("div");
-      title.className = "video-title";
-      const scroll = document.createElement("div");
-      scroll.className = "scrolling-text";
-      scroll.textContent = it.name;
-      title.appendChild(scroll);
-
-      div.appendChild(thumb);
-      div.appendChild(title);
-      div.addEventListener("click", () => playVideoByName(it.name));
-      list.appendChild(div);
+    const res = await fetchWithTimeout(`/control/${encodeURIComponent(action)}`, { method: "POST" });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error("[control] HTTP", res.status, body);
+      return null;
     }
-  } catch (e) {
-    console.warn("loadVideoList failed:", e);
+    const data = await parseJsonSafe(res);
+    log("[control]", action, data);
+    return data;
+  } catch (err) {
+    console.error("[control][error]", action, err);
+    return null;
   }
 }
 
-// --- Controls ---
 async function playVideo(videoName) {
   log("[play-video] ->", videoName);
   try {
-    const res = await fetchWithTimeout("/control/play-video", {
+    const res = await fetchWithTimeout("/play-video", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: videoName }), // <-- clé attendue par la nouvelle API
+      body: JSON.stringify({ video: videoName }),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -153,97 +76,322 @@ async function playVideo(videoName) {
   }
 }
 
-async function handleToolbarClick(e) {
-  const btn = e.target.closest(".vlc-btn");
-  if (!btn) return;
-  const action = btn.dataset.action;
-  try {
-    if (action === "play") await jpost("/control/play");
-    else if (action === "pause") await jpost("/control/pause");
-    else if (action === "next") await jpost("/control/next");
-    else if (action === "prev") await jpost("/control/prev");
-    else if (action === "volup") await jpost("/control/vol_up");
-    else if (action === "voldown") await jpost("/control/vol_down");
-    startPolling();
-  } catch (err) {
-    alert("Erreur contrôle: " + err.message);
+// ==============================
+// Rattachement des handlers DOM
+// ==============================
+
+function attachClickHandlers() {
+  // Boutons de contrôle VLC (sauf Play/Pause intelligent)
+  document.querySelectorAll(".vlc-btn").forEach((btn) => {
+    if (btn.id === "btn-playpause") return; // géré séparément
+    const action = btn.dataset.action;
+    if (!action) return;
+    btn.addEventListener("click", () => sendAction(action), { passive: true });
+  });
+
+  // Clic sur une carte vidéo → lecture
+  document.querySelectorAll(".video-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      const name = item.dataset.name || item.getAttribute("data-name");
+      if (name) playVideo(name);
+    }, { passive: true });
+  });
+
+  // Fallback pour miniatures cassées → 1x1 transparent
+  document.querySelectorAll(".video-thumb").forEach((img) => {
+    img.addEventListener("error", () => {
+      if (img.dataset.fallbackApplied) return;
+      img.dataset.fallbackApplied = "1";
+      img.src = PLACEHOLDER_THUMB;
+    });
+  });
+
+  // Bouton d'accès à la page paramètres
+  const btnSettings = document.getElementById("btn-settings");
+  if (btnSettings) {
+    btnSettings.addEventListener("click", () => { window.location.href = "/settings"; }, { passive: true });
+  }
+
+  // Bouton Play/Pause intelligent
+  const btnPP = document.getElementById("btn-playpause");
+  if (btnPP) {
+    btnPP.addEventListener("click", togglePlayPause, { passive: true });
   }
 }
 
-function bindToolbar() {
-  document.body.addEventListener("click", handleToolbarClick);
+// -------- Aperçu HLS (toggle + volume local) --------
+let hlsInstance = null;
+
+function showPreviewUI(show) {
+  const wrap = document.getElementById("preview-wrap");
+  const ph = document.getElementById("vlc-output");
+  if (!wrap || !ph) return;
+  wrap.style.display = show ? "block" : "none";
+  ph.style.display = show ? "none" : "flex";
 }
 
-// --- Preview (HLS) ---
-function attachHlsToVideo(url) {
-  const video = elPrevVideo();
-  if (Hls && Hls.isSupported()) {
-    if (HLS_OBJ) { HLS_OBJ.destroy(); HLS_OBJ = null; }
-    HLS_OBJ = new Hls({ lowLatencyMode: true, liveDurationInfinity: true });
-    HLS_OBJ.loadSource(url);
-    HLS_OBJ.attachMedia(video);
-  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+function applyVideoNoControls(video) {
+  video.controls = false;
+  video.setAttribute("disablepictureinpicture", "");
+  video.setAttribute("disableremoteplayback", "");
+  video.setAttribute("controlslist", "nodownload noplaybackrate nofullscreen");
+  video.addEventListener("contextmenu", (e) => e.preventDefault());
+}
+
+function initLocalVolumeUI(video) {
+  const slider = document.getElementById("preview-vol");
+  if (!slider || !video) return;
+
+  const saved = Number(localStorage.getItem("previewVolume") || "0");
+  const vol0to1 = Math.min(1, Math.max(0, saved / 100));
+  video.volume = vol0to1;
+  video.muted = vol0to1 === 0;
+  slider.value = String(Math.round(vol0to1 * 100));
+
+  slider.addEventListener("input", () => {
+    const v = Number(slider.value || "0");
+    const f = Math.min(1, Math.max(0, v / 100));
+    video.volume = f;
+    video.muted = (v === 0);
+    localStorage.setItem("previewVolume", String(v));
+  });
+}
+
+function startHlsPlayback(url) {
+  const video = document.getElementById("preview-video");
+  if (!video) return;
+
+  showPreviewUI(true);
+  applyVideoNoControls(video);
+  initLocalVolumeUI(video);
+
+  if (window.Hls && Hls.isSupported()) {
+    if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+    hlsInstance = new Hls({ liveSyncDuration: 4, maxLiveSyncPlaybackRate: 1.0 });
+    hlsInstance.loadSource(url);
+    hlsInstance.attachMedia(video);
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(() => {}); });
+  } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
     video.src = url;
+    video.play().catch(() => {});
   } else {
-    console.warn("HLS non supporté par ce navigateur.");
+    console.warn("HLS non supporté par ce navigateur");
   }
 }
 
-async function loadPreviewStatusAndWire() {
-  // Si la page index a un toggle preview
-  if (!elPrevToggle()) return;
-  try {
-    const rep = await jget("/api/preview/status");
-    const enabled = !!(rep.preview && rep.preview.enabled);
-    elPrevToggle().checked = enabled;
-    elPrevWrap().style.display = enabled ? "block" : "none";
-    if (enabled && rep.preview.index_url) {
-      attachHlsToVideo(rep.preview.index_url);
-      elPrevVideo().play().catch(()=>{});
-    }
-  } catch (e) {
-    console.warn("preview status error:", e);
+function stopHlsPlayback() {
+  const video = document.getElementById("preview-video");
+  if (video) {
+    try { video.pause(); } catch {}
+    video.removeAttribute("src");
   }
+  if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+  showPreviewUI(false);
+}
 
-  elPrevToggle().addEventListener("change", async () => {
+async function refreshPreviewToggleUI() {
+  try {
+    const r = await fetch("/api/preview/status");
+    if (!r.ok) return;
+    const s = await r.json();
+    const cb = document.getElementById("preview-toggle");
+    if (cb) cb.checked = !!s.enabled;
+    if (s.enabled) startHlsPlayback(s.url || "/hls/index.m3u8");
+    else stopHlsPlayback();
+  } catch {}
+}
+
+function wirePreviewToggle() {
+  const cb = document.getElementById("preview-toggle");
+  if (!cb) return;
+  cb.addEventListener("change", async () => {
     try {
-      const enabled = elPrevToggle().checked;
-      const url = enabled ? "/api/preview/enable" : "/api/preview/disable";
-      const rep = await jpost(url);
-      if (enabled) {
-        elPrevWrap().style.display = "block";
-        if (rep.preview && rep.preview.index_url) {
-          attachHlsToVideo(rep.preview.index_url);
-          elPrevVideo().play().catch(()=>{});
-        }
+      if (cb.checked) {
+        const r = await fetch("/api/preview/enable", { method: "POST" });
+        const s = await r.json().catch(() => ({}));
+        startHlsPlayback((s && s.url) || "/hls/index.m3u8");
       } else {
-        elPrevWrap().style.display = "none";
-        if (HLS_OBJ) { HLS_OBJ.destroy(); HLS_OBJ = null; }
-        elPrevVideo().pause();
-        elPrevVideo().removeAttribute("src");
-        elPrevVideo().load();
+        await fetch("/api/preview/disable", { method: "POST" });
+        stopHlsPlayback();
       }
     } catch (e) {
-      // revert
-      elPrevToggle().checked = !elPrevToggle().checked;
-      alert("Erreur aperçu: " + e.message);
+      console.error("preview toggle error:", e);
     }
-  });
-
-  // Volume overlay (local au navigateur)
-  elPrevVol() && elPrevVol().addEventListener("input", () => {
-    elPrevVideo().volume = Math.max(0, Math.min(1, (parseInt(elPrevVol().value, 10) || 0) / 100));
   });
 }
 
-// --- Boot ---
-(async function boot() {
+// ==============================
+// Play/Pause intelligent + panneau d’état
+// ==============================
+
+function updatePlayPauseUI(isPlaying) {
+  const btn = document.getElementById("btn-playpause");
+  if (!btn) return;
+  const icon = btn.querySelector("i");
+  btn.dataset.action = isPlaying ? "pause" : "play";
+  icon.className = `fa-solid fa-${isPlaying ? "pause" : "play"}`;
+  btn.title = isPlaying ? "Pause" : "Lecture";
+  btn.classList.toggle("active", isPlaying);
+}
+
+async function getIsPlaying() {
   try {
-    await loadVideoList();
-    bindToolbar();
-    startPolling();
-    await loadPreviewStatusAndWire();
-  } catch (e) {
-    console.warn("boot error:", e);
+    const r = await fetchWithTimeout("/status", { method: "GET" });
+    if (!r.ok) return false;
+    const s = await r.json();
+    return s.state === "playing";
+  } catch { return false; }
+}
+
+async function togglePlayPause() {
+  const btn = document.getElementById("btn-playpause");
+  if (!btn) return;
+
+  // 1) Lis l'état réel
+  const isPlayingNow = await getIsPlaying();
+  const action = isPlayingNow ? "pause" : "play";
+
+  // 2) Envoie la commande correspondante
+  await sendAction(action);
+
+  // 3) Petite anim' puis resync avec l'état réel (évite tout décalage)
+  btn.classList.add("switching");
+  setTimeout(async () => {
+    await syncStatusOnce();
+    btn.classList.remove("switching");
+  }, 200);
+}
+
+function updateStatusPanelPayload(s) {
+  // ---- Titre
+  const titleEl = document.getElementById('s-title');
+  if (titleEl) {
+    const title = (s && s.current) ? s.current : '—';
+    titleEl.textContent = title;
+    titleEl.setAttribute('title', title); // tooltip plein
   }
-})();
+
+  // ---- État: badge + icône + texte
+  const badge = document.getElementById('s-state-badge');
+  const stateIcon = document.getElementById('s-state-icon');
+  const stateText = document.getElementById('s-state-text');
+  const raw = (s && s.state) ? String(s.state).toLowerCase() : 'idle';
+
+  const map = {
+    playing:  { icon: 'fa-circle-play',   cls: 'is-playing',   label: 'Lecture' },
+    paused:   { icon: 'fa-circle-pause',  cls: 'is-paused',    label: 'Pause' },
+    stopped:  { icon: 'fa-circle-stop',   cls: 'is-stopped',   label: 'Arrêt' },
+    opening:  { icon: 'fa-compact-disc',  cls: 'is-opening',   label: 'Ouverture' },
+    buffering:{ icon: 'fa-spinner',       cls: 'is-buffering', label: 'Buffering' },
+    ended:    { icon: 'fa-flag-checkered',cls: 'is-ended',     label: 'Terminé' },
+    error:    { icon: 'fa-triangle-exclamation', cls: 'is-error', label: 'Erreur' },
+    idle:     { icon: 'fa-circle',        cls: 'is-stopped',   label: 'Inactif' }
+  };
+  const m = map[raw] || map.idle;
+
+  if (stateIcon) stateIcon.className = `fa-solid ${m.icon}` + (raw === 'buffering' ? ' fa-spin' : '');
+  if (stateText) stateText.textContent = m.label;
+  if (badge) { badge.className = 'status-badge'; badge.classList.add(m.cls); }
+
+  // ---- Volume (% + icône adaptée)
+  const volText = document.getElementById('s-vol');
+  const volIcon = document.getElementById('s-vol-icon');
+  let vol = (s && typeof s.volume === 'number') ? Math.max(0, Math.min(100, s.volume)) : null;
+
+  if (volText) volText.textContent = (vol === null ? '—' : `${vol}%`);
+
+  if (volIcon) {
+    let vIcon = 'fa-volume-off';
+    if (vol !== null) {
+      if (vol === 0) vIcon = 'fa-volume-xmark';
+      else if (vol <= 30) vIcon = 'fa-volume-low';
+      else if (vol <= 70) vIcon = 'fa-volume';
+      else vIcon = 'fa-volume-high';
+    }
+    volIcon.className = `fa-solid ${vIcon}`;
+  }
+
+  // Recalcule le débordement du titre APRÈS mise à jour DOM
+  requestAnimationFrame(updateTitleOverflow);
+}
+
+async function syncStatusOnce() {
+  try {
+    const r = await fetchWithTimeout('/status', { method: 'GET' });
+    if (!r.ok) return;
+    const s = await r.json();
+    updatePlayPauseUI(s.state === 'playing');
+    updateStatusPanelPayload(s);
+  } catch {}
+}
+
+async function syncPlayButton() {  // rétro-compat : utilisé pour le polling
+  await syncStatusOnce();
+}
+
+// ==============================
+// Calcul du débordement (scroll au survol)
+// ==============================
+
+function updateTitleOverflow() {
+  const row = document.querySelector('.status-title');
+  const scroller = document.querySelector('.title-scroller');
+  const txt  = document.getElementById('s-title');
+  if (!row || !scroller || !txt) return;
+
+  const needsScroll = txt.scrollWidth > scroller.clientWidth + 2;
+  row.classList.toggle('is-overflowing', needsScroll);
+
+  if (needsScroll) {
+    const overflowPx = Math.max(0, txt.scrollWidth - scroller.clientWidth);
+    const PX_PER_SEC = 36;            // ← vitesse (px/s). Augmente pour aller plus vite.
+    const dur = Math.max(2, Math.min(8, overflowPx / PX_PER_SEC)); // bornes 2–8 s
+    txt.style.setProperty('--scroll-px', overflowPx + 'px');
+    txt.style.setProperty('--scroll-duration', dur + 's');
+    txt.style.textOverflow = 'clip';
+  } else {
+    txt.style.removeProperty('--scroll-px');
+    txt.style.removeProperty('--scroll-duration');
+    txt.style.textOverflow = 'ellipsis';
+  }
+}
+
+function markOverflowingTitles(){
+  document.querySelectorAll('.video-item .video-title').forEach(box=>{
+    const text = box.querySelector('.scrolling-text');
+    if(!text) return;
+    const isOverflow = text.scrollWidth > box.clientWidth + 2;
+    box.classList.toggle('is-overflowing', isOverflow);
+  });
+}
+
+window.addEventListener('resize', ()=> {
+  clearTimeout(window.__vt_of_deb);
+  window.__vt_of_deb = setTimeout(markOverflowingTitles, 100);
+});
+
+document.addEventListener('DOMContentLoaded', markOverflowingTitles);
+
+
+// ==============================
+// Initialisation
+// ==============================
+
+document.addEventListener("DOMContentLoaded", () => {
+  // UI Aperçu HLS
+  wirePreviewToggle();
+  refreshPreviewToggleUI();
+
+  // Contrôles & handlers
+  attachClickHandlers();
+
+  // Sync initiale + polling périodique
+  syncStatusOnce();
+  setInterval(syncStatusOnce, 3000);
+});
+
+window.addEventListener('resize', () => {
+  clearTimeout(window.__st_overflow_t);
+  window.__st_overflow_t = setTimeout(updateTitleOverflow, 100);
+});
+

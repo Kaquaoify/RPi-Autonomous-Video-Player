@@ -1,154 +1,384 @@
+<!-- app/templates/rclone_setup.html -->
 <!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>RPi AVP • Assistant rclone</title>
+  <title>Configurer rclone · RPi AVP</title>
+
+  <!-- Styles globaux -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+  <!-- Styles locaux à la page rclone (layout simple) -->
+  <style>
+    .container { max-width: 1000px; margin: 0 auto; padding: 1rem; }
+    .grid { display:grid; gap:1rem; }
+    .card { background:#1f1f1f; border-radius:12px; padding:1rem; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+    .row { display:flex; gap:.75rem; flex-wrap:wrap; align-items:center; }
+    .row > * { flex:1; min-width: 220px; }
+    .label { font-size:.9rem; opacity:.8; margin-bottom:.25rem; }
+    input, select, textarea {
+      width:100%; padding:.6rem .75rem; border-radius:10px; border:1px solid #2d2d2d; background:#131313; color:#fff;
+      font-family:inherit; font-size: 1rem;
+    }
+    textarea { min-height: 120px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .btn { padding:.7rem 1rem; border:0; border-radius:10px; background:#2b2b2b; color:#fff; cursor:pointer; }
+    .btn:hover{ opacity:.9 }
+    .btn.secondary{ background:#3a3a3a }
+    .btn.ghost{ background:#0000; border:1px solid #333 }
+    .muted { opacity:.75; font-size:.95rem; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .status-ok { color:#7ddc7a }
+    .status-bad { color:#ff7a7a }
+    pre.log { white-space:pre-wrap; background:#0e0e0e; border-radius:10px; padding:.75rem; max-height:320px; overflow:auto; }
+    .pill { display:inline-block; padding:.2rem .5rem; border-radius:999px; background:#2b2b2b; font-size:.85rem; }
+  </style>
 </head>
 <body>
-  <header class="appbar">
-    <div class="brand">RPi AVP</div>
-    <nav class="nav">
-      <a class="navlink" href="/">Accueil</a>
-      <a class="navlink" href="/settings">Paramètres</a>
-      <a class="navlink active" href="/rclone-setup">Assistant rclone</a>
-    </nav>
-    <div class="flex-spacer"></div>
+  <!-- En-tête : logo + retour paramètres -->
+  <header>
+    <div class="logo">RPi AVP</div>
+    <div class="header-buttons">
+      <button id="btn-back" class="btn ghost">← Retour</button>
+    </div>
   </header>
 
-  <div class="container">
+  <main class="container grid">
+    <!-- ÉTAPE 0 — État rclone : version, chemin, remotes -->
     <section class="card">
-      <h2><i class="fa-solid fa-plug"></i> État de rclone</h2>
+      <h2>État rclone</h2>
       <div class="row">
-        <span id="rcloneVersion" class="badge">—</span>
-        <button id="btnRefreshVersion" class="btn btn-light">Rafraîchir</button>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2><i class="fa-solid fa-cloud"></i> Remote & Dossier</h2>
-      <div class="row">
-        <label for="selectRemote">Remote par défaut</label>
-        <select id="selectRemote"></select>
-        <button id="btnReloadRemotes" class="btn btn-light">Recharger</button>
-      </div>
-      <div class="row">
-        <label for="inputFolder">Dossier distant</label>
-        <input id="inputFolder" type="text" placeholder="ex: VideosRPi" value="{{ remote_folder|e }}">
-        <button id="btnSaveFolder" class="btn btn-primary">Enregistrer</button>
-      </div>
-      <p class="muted">Remote effectif : <code id="remoteSpecPreview"></code></p>
-    </section>
-
-    <section class="card">
-      <h2><i class="fa-solid fa-arrows-rotate"></i> Synchronisation</h2>
-      <div class="row">
-        <button id="btnStartSync" class="btn btn-primary">Lancer une synchronisation</button>
-        <span id="syncStatus" class="badge">inconnu</span>
-      </div>
-      <details class="section">
-        <summary>Journal rclone</summary>
-        <pre id="logBox" class="log-box">—</pre>
-        <div class="row">
-          <label for="logLines">Lignes</label>
-          <input id="logLines" type="number" min="50" step="50" value="300" style="width:110px;">
-          <button id="btnReloadLog" class="btn btn-light">Recharger le journal</button>
+        <div>
+          <div class="label">Version</div>
+          <div id="rc-version" class="pill mono">—</div>
         </div>
-      </details>
-      <div class="row">
-        <button id="btnRefreshVideos" class="btn btn-light"><i class="fa-solid fa-rotate"></i> Rescanner les vidéos</button>
+        <div>
+          <div class="label">Binaire</div>
+          <div id="rc-path" class="pill mono">—</div>
+        </div>
+        <div>
+          <div class="label">Remotes détectés</div>
+          <div id="rc-remotes" class="pill mono">—</div>
+        </div>
       </div>
+      <div class="row" style="margin-top:.75rem">
+        <button id="btn-refresh" class="btn">Rafraîchir l’état</button>
+        <button id="btn-install" class="btn secondary">Installer/Mettre à jour rclone</button>
+      </div>
+      <p class="muted" style="margin-top:.5rem">
+        Si l’installation automatique échoue (sudo requis), lance manuellement&nbsp;:
+        <code class="mono">curl -fsSL https://rclone.org/install.sh | sudo bash</code>
+      </p>
     </section>
-  </div>
 
+    <!-- ÉTAPE 1 — Réglages utilisés par test/sync -->
+    <section class="card">
+      <h2>Réglages</h2>
+      <div class="row">
+        <div>
+          <div class="label">Nom du remote</div>
+          <input id="remote-name" placeholder="gdrive">
+        </div>
+        <div>
+          <div class="label">Dossier du remote (racine)</div>
+          <input id="remote-folder" placeholder="VideosRPi">
+        </div>
+      </div>
+      <div class="row" style="margin-top:.75rem">
+        <button id="btn-save-settings" class="btn">Enregistrer</button>
+      </div>
+      <p class="muted">Ces valeurs sont stockées dans <span class="mono">settings.json</span> et utilisées pour “Tester” et “Synchroniser”.</p>
+    </section>
+
+    <!-- ÉTAPE 2 — Création/MàJ du remote Drive en collant le token -->
+    <section class="card">
+      <h2>Créer un remote Google Drive (OAuth)</h2>
+      <ol class="muted">
+        <li>Sur votre ordinateur (avec navigateur), exécutez&nbsp;: <code class="mono">rclone authorize "drive"</code></li>
+        <li>Connectez-vous à Google, autorisez, puis <b>copiez le JSON du token</b> affiché.</li>
+        <li>Collez le JSON ci-dessous et cliquez “Créer/Mettre à jour le remote”.</li>
+      </ol>
+      <div class="row">
+        <div>
+          <div class="label">Token JSON (coller la sortie de <code class="mono">rclone authorize "drive"</code>)</div>
+          <textarea id="drive-token" placeholder='{"access_token":"...","token_type":"Bearer","refresh_token":"...","expiry":"..."}'></textarea>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <div class="label">Scope</div>
+          <select id="drive-scope">
+            <option value="drive">drive (complet)</option>
+            <option value="drive.file">drive.file (créées par rclone)</option>
+            <option value="drive.readonly">drive.readonly (lecture seule)</option>
+          </select>
+        </div>
+        <div>
+          <div class="label">Client ID (optionnel)</div>
+          <input id="drive-client-id" placeholder="">
+        </div>
+        <div>
+          <div class="label">Client Secret (optionnel)</div>
+          <input id="drive-client-secret" placeholder="">
+        </div>
+      </div>
+      <div class="row" style="margin-top:.75rem">
+        <button id="btn-create-remote" class="btn">Créer / Mettre à jour le remote</button>
+        <button id="btn-list-remotes" class="btn secondary">Lister les remotes</button>
+      </div>
+      <div id="create-remote-status" class="muted" style="margin-top:.5rem"></div>
+    </section>
+
+    <!-- AIDE RAPIDE — Téléchargement rclone + commandes par OS -->
+    <section class="card" id="help-rclone-authorize">
+      <h2>Aide rapide · Générer le token avec rclone</h2>
+
+      <p class="muted" style="margin-top:-.25rem">
+        Pas besoin d’installer rclone “système” sur votre appareil : téléchargez le binaire, lancez la commande, 
+        puis <b>copiez le JSON</b> affiché et <b>collez-le dans “Token JSON”</b> ci-dessus.
+      </p>
+
+      <div class="row" style="margin:.75rem 0">
+        <a class="btn" href="https://rclone.org/downloads/" target="_blank" rel="noopener">Télécharger rclone</a>
+        <button id="btn-copy-authorize" class="btn secondary" type="button">
+          Copier la commande : <span class="mono">rclone authorize "drive"</span>
+        </button>
+      </div>
+
+      <details style="margin-top:.5rem">
+        <summary style="cursor:pointer">Windows (recommandé) — étapes détaillées</summary>
+        <ol class="muted" style="margin:.5rem 0 0">
+          <li>Téléchargez l’archive Windows sur la page “Télécharger rclone”.</li>
+          <li>Dézippez le dossier (ex. sur le Bureau).</li>
+          <li>Dans ce dossier, <b>Maj + clic droit</b> → “Ouvrir dans PowerShell ici”.</li>
+          <li>Exécutez :
+            <pre class="log mono">.\rclone.exe authorize "drive"</pre>
+          </li>
+          <li>Un onglet Google s’ouvre → connectez-vous et autorisez.</li>
+          <li>Copiez le JSON affiché, puis <b>collez-le</b> dans <i>Token JSON</i> et cliquez <i>Créer / Mettre à jour le remote</i>.</li>
+        </ol>
+      </details>
+
+      <details style="margin-top:.5rem">
+        <summary style="cursor:pointer">macOS — étapes détaillées</summary>
+        <ol class="muted" style="margin:.5rem 0 0">
+          <li><b>Avec Homebrew</b> : <code class="mono">brew install rclone</code> puis :
+            <pre class="log mono">rclone authorize "drive"</pre>
+          </li>
+          <li><b>Ou portable</b> : téléchargez l’archive, dézippez, puis dans Terminal :
+            <pre class="log mono">./rclone authorize "drive"</pre>
+          </li>
+          <li>Copiez le JSON et collez-le ici, puis cliquez <i>Créer / Mettre à jour le remote</i>.</li>
+        </ol>
+      </details>
+
+      <details style="margin-top:.5rem">
+        <summary style="cursor:pointer">Linux — étapes détaillées</summary>
+        <ol class="muted" style="margin:.5rem 0 0">
+          <li><b>Rapide</b> : 
+            <pre class="log mono">curl -fsSL https://rclone.org/install.sh | sudo bash</pre>
+          </li>
+          <li>Puis :
+            <pre class="log mono">rclone authorize "drive"</pre>
+          </li>
+          <li>Copiez le JSON et collez-le ici, puis cliquez <i>Créer / Mettre à jour le remote</i>.</li>
+        </ol>
+      </details>
+
+      <details style="margin-top:.5rem">
+        <summary style="cursor:pointer">Android (optionnel)</summary>
+        <ol class="muted" style="margin:.5rem 0 0">
+          <li>Installez <b>Termux</b> → <code class="mono">pkg update && pkg install rclone</code></li>
+          <li>Exécutez :
+            <pre class="log mono">rclone authorize "drive"</pre>
+          </li>
+          <li>Copiez le JSON et collez-le ici, puis cliquez <i>Créer / Mettre à jour le remote</i>.</li>
+        </ol>
+      </details>
+
+      <p class="muted" style="margin-top:.75rem">
+        <b>Note sécurité</b> : le JSON contient un <i>refresh_token</i>. Gardez-le privé. 
+        Vous pouvez révoquer l’accès depuis <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>.
+      </p>
+    </section>
+
+    <!-- ÉTAPE 3 — Tests et synchronisation -->
+    <section class="card">
+      <h2>Tester & synchroniser</h2>
+      <div class="row">
+        <button id="btn-test-list" class="btn">Tester la connexion (lsd)</button>
+        <button id="btn-sync" class="btn secondary">Synchroniser maintenant</button>
+        <button id="btn-log" class="btn ghost">Afficher le log</button>
+        <button id="btn-delete-remote" class="btn" style="background:#7a1e1e">Supprimer le remote</button>
+      </div>
+      <pre id="output" class="log" style="margin-top:.75rem">—</pre>
+    </section>
+  </main>
+
+  <!-- Script de page : appels API + wiring des boutons -->
   <script>
-  async function jget(u){const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(u+" -> "+r.status); return r.json();}
-  async function jpost(u,b){const r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:b?JSON.stringify(b):"{}"}); if(!r.ok) throw new Error(u+" -> "+r.status); return r.json();}
+    // Raccourcis DOM
+    const el = (id)=>document.getElementById(id);
+    const out = el('output');
 
-  const elVersion=()=>document.getElementById("rcloneVersion");
-  const elRemotes=()=>document.getElementById("selectRemote");
-  const elFolder =()=>document.getElementById("inputFolder");
-  const elSpec   =()=>document.getElementById("remoteSpecPreview");
-  const elStatus =()=>document.getElementById("syncStatus");
-  const elLog    =()=>document.getElementById("logBox");
-  const elLines  =()=>document.getElementById("logLines");
+    // Affiche du texte (remplace) dans la zone log
+    function show(text){ out.textContent = text; }
 
-  let defaultRemote="{{ default_remote|e }}";
+    // Ajoute une ligne dans la zone log
+    function append(text){ out.textContent += (out.textContent ? "\n" : "") + text; }
 
-  function updateSpec(){
-    const r=(elRemotes().value||defaultRemote).trim();
-    const f=(elFolder().value||"").trim().replace(/^\/+|\/+$/g,"");
-    elSpec().textContent = f ? `${r}:${f}` : `${r}:`;
-  }
+    // Appel API générique (JSON ou texte brut)
+    async function api(path, opts={}){
+      const r = await fetch(path, opts);
+      const ct = r.headers.get('content-type')||'';
+      if(!r.ok){ throw new Error(await r.text()); }
+      if(ct.includes('application/json')) return r.json();
+      return r.text();
+    }
 
-  async function loadVersion(){
-    try{ const d=await jget("/api/rclone/version");
-      if(d.available==="yes") elVersion().textContent=d.version||"rclone présent";
-      else if(d.available==="no") elVersion().textContent="rclone introuvable";
-      else elVersion().textContent="Erreur";
-    }catch(e){ elVersion().textContent="Erreur: "+e.message; }
-  }
-  async function loadRemotes(){
-    try{ const d=await jget("/api/rclone/remotes");
-      elRemotes().innerHTML=""; (d.items||[]).forEach(n=>{ const o=document.createElement("option"); o.value=n; o.textContent=n; elRemotes().appendChild(o); });
-      defaultRemote=d.default||defaultRemote;
-      if((d.items||[]).includes(defaultRemote)) elRemotes().value=defaultRemote;
-      updateSpec();
-    }catch(e){ elRemotes().innerHTML="<option>(erreur)</option>"; }
-  }
-  async function loadFolder(){
-    try{ const d=await jget("/api/rclone/remote_folder"); if(d.ok) elFolder().value=d.remote_folder||"{{ remote_folder|e }}"; updateSpec(); }
-    catch{ updateSpec(); }
-  }
-  async function saveFolder(){
-    try{ const d=await jpost("/api/rclone/remote_folder", { remote_folder: elFolder().value.trim() });
-      alert(d.ok?"Dossier mis à jour":"Erreur: "+(d.error||"inconnue"));
-      updateSpec();
-    }catch(e){ alert("Erreur réseau: "+e.message); }
-  }
+    // Récupère état rclone et charge settings
+    async function refresh(){
+      const s = await api('/api/rclone/check');
+      el('rc-version').textContent = s.version || '—';
+      el('rc-path').textContent = s.which || '—';
+      el('rc-remotes').textContent = (s.remotes && s.remotes.length) ? s.remotes.join(', ') : '—';
+      const cfg = await api('/api/rclone/settings');
+      el('remote-name').value = cfg.remote_name || 'gdrive';
+      el('remote-folder').value = cfg.remote_folder || 'VideosRPi';
+    }
 
-  let poll=null;
-  async function startSync(){
-    try{
-      const rep=await jpost("/api/rclone/sync", { remote: elRemotes().value||defaultRemote, folder: elFolder().value.trim() });
-      if(rep.started){ elStatus().textContent="en cours…"; elStatus().style.background="#393b14"; pollStatus(); }
-      else { elStatus().textContent="déjà en cours"; elStatus().style.background="#393b14"; }
-    }catch(e){ alert("Erreur: "+e.message); }
-  }
-  async function pollStatus(){
-    clearInterval(poll);
-    poll=setInterval(async()=>{
+    // Bouton: rafraîchir l'état
+    el('btn-refresh').onclick = refresh;
+
+    // Bouton: installer/mettre à jour rclone
+    el('btn-install').onclick = async ()=>{
+      show("Installation en cours...");
       try{
-        const st=await jget("/api/rclone/sync_status");
-        if(st.running){ elStatus().textContent="en cours…"; await reloadLog(false); }
-        else { clearInterval(poll); elStatus().textContent="terminée"; elStatus().style.background="#143b14"; await reloadLog(true); }
-      }catch(e){ clearInterval(poll); elStatus().textContent="erreur"; elStatus().style.background="#3b1414"; }
-    }, 2000);
-  }
-  async function reloadLog(scrollBottom){
-    try{
-      const n=Math.max(50, parseInt(elLines().value||"300",10));
-      const rep=await jget("/api/rclone/log?lines="+n);
-      elLog().textContent=rep.log||"—";
-      if(scrollBottom) elLog().scrollTop=elLog().scrollHeight;
-    }catch{ elLog().textContent="(erreur de lecture du journal)"; }
-  }
-  async function refreshVideos(){
-    try{ await jpost("/control/refresh"); alert("Liste rescannée."); }catch(e){ alert("Erreur: "+e.message); }
-  }
+        const res = await api('/api/rclone/install', {method:'POST'});
+        show(res.message || JSON.stringify(res));
+        await refresh();
+      }catch(e){ show("Erreur installation: " + e.message); }
+    };
 
-  document.getElementById("btnRefreshVersion").addEventListener("click", loadVersion);
-  document.getElementById("btnReloadRemotes").addEventListener("click", loadRemotes);
-  document.getElementById("btnSaveFolder").addEventListener("click", saveFolder);
-  document.getElementById("btnStartSync").addEventListener("click", startSync);
-  document.getElementById("btnReloadLog").addEventListener("click", ()=>reloadLog(true));
-  document.getElementById("btnRefreshVideos").addEventListener("click", refreshVideos);
-  document.getElementById("selectRemote").addEventListener("change", updateSpec);
-  document.getElementById("inputFolder").addEventListener("input", updateSpec);
+    // Bouton: supprimer un remote (unlink)
+    el('btn-delete-remote').onclick = async ()=>{
+      const rn = (el('remote-name').value.trim() || 'gdrive');
+      if(!confirm(`Supprimer le remote "${rn}" ?\n(Cela ne supprime pas vos fichiers, seulement la configuration rclone)`)) return;
+      show(`Suppression du remote "${rn}"...`);
+      try{
+        const res = await api('/api/rclone/config/delete', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ remote_name: rn })
+        });
+        append(res.message || "Remote supprimé.");
+        await refresh();
+      }catch(e){
+        append("Erreur: " + e.message);
+      }
+    };
 
-  (async function init(){ await loadVersion(); await loadRemotes(); await loadFolder(); await reloadLog(false); })();
+    // Bouton: sauvegarder réglages de base (remote, dossier)
+    el('btn-save-settings').onclick = async ()=>{
+      try{
+        const body = {
+          remote_name: el('remote-name').value.trim(),
+          remote_folder: el('remote-folder').value.trim()
+        };
+        await api('/api/rclone/settings', {
+          method:'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(body)
+        });
+        show("Réglages enregistrés ✔");
+      }catch(e){ show("Erreur: " + e.message); }
+    };
+
+    // Bouton: créer/mettre à jour le remote à partir du token JSON
+    el('btn-create-remote').onclick = async ()=>{
+      show("Création/mise à jour du remote...");
+      try{
+        const body = {
+          remote_name: el('remote-name').value.trim(),
+          drive_scope: el('drive-scope').value,
+          client_id: el('drive-client-id').value.trim(),
+          client_secret: el('drive-client-secret').value.trim(),
+          token_json: el('drive-token').value.trim()
+        };
+        const res = await api('/api/rclone/config/create', {
+          method:'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(body)
+        });
+        el('create-remote-status').textContent = res.message || "OK";
+        await refresh();
+        append(res.output || "OK");
+      }catch(e){
+        el('create-remote-status').textContent = "Erreur: " + e.message;
+      }
+    };
+
+    // Bouton: lister les remotes (lecture seule)
+    el('btn-list-remotes').onclick = async ()=>{
+      try{
+        const res = await api('/api/rclone/check');
+        append("Remotes: " + (res.remotes && res.remotes.length ? res.remotes.join(', ') : '—'));
+      }catch(e){ append("Erreur: " + e.message); }
+    };
+
+    // Bouton: tester la connexion (lsd du dossier choisi)
+    el('btn-test-list').onclick = async ()=>{
+      show("Test de connexion (lsd)...");
+      try{
+        const rn = el('remote-name').value.trim() || 'gdrive';
+        const rf = el('remote-folder').value.trim() || '';
+        const res = await api('/api/rclone/config/test', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ remote_name: rn, remote_folder: rf })
+        });
+        append(res.output || "OK");
+      }catch(e){ append("Erreur: " + e.message); }
+    };
+
+    // Bouton: lancer la synchronisation Drive → Pi
+    el('btn-sync').onclick = async ()=>{
+      show("Sync démarrée...");
+      try{
+        const rn = el('remote-name').value.trim() || 'gdrive';
+        const rf = el('remote-folder').value.trim() || '';
+        const res = await api('/api/rclone/sync', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ remote_name: rn, remote_folder: rf })
+        });
+        append((res && res.message) ? res.message : "Démarrée");
+      }catch(e){ append("Erreur: " + e.message); }
+    };
+
+    // Bouton: afficher la fin du log rclone (tail)
+    el('btn-log').onclick = async ()=>{
+      try{
+        const txt = await api('/api/rclone/log?tail=200');
+        append("--- LOG ---\n" + txt.trim());
+      }catch(e){ append("Erreur: " + e.message); }
+    };
+
+    // Bouton: retour vers /settings
+    el('btn-back').onclick = ()=>{ window.location.href = "/settings"; };
+
+    // Bouton "Copier la commande rclone authorize"
+    (function(){
+      const btn = document.getElementById('btn-copy-authorize');
+      if(!btn) return;
+      btn.addEventListener('click', async ()=>{
+        try{
+          await navigator.clipboard.writeText('rclone authorize "drive"');
+          btn.textContent = 'Copié ✔  rclone authorize "drive"';
+          setTimeout(()=>{ btn.innerHTML = 'Copier la commande : <span class="mono">rclone authorize "drive"</span>'; }, 1600);
+        }catch(e){
+          alert('Impossible de copier automatiquement. Copiez manuellement : rclone authorize "drive"');
+        }
+      });
+    })();
+
+    // Initialisation de la page
+    refresh().catch(console.error);
   </script>
 </body>
 </html>
