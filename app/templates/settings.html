@@ -3,153 +3,67 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Paramètres • RPi AVP</title>
+  <title>RPi AVP • Paramètres</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  <style>
-    .container { max-width: 960px; margin: 0 auto; padding: 16px; }
-    .page-header { display: flex; align-items: center; gap: 12px; }
-    .page-header .spacer { flex: 1; }
-    .card { background:#111; border:1px solid #222; border-radius:12px; padding:16px; margin:16px 0; }
-    .row { display:flex; gap:12px; align-items:center; margin:8px 0; flex-wrap:wrap; }
-    .kv { display:grid; grid-template-columns: 220px 1fr; gap:12px; align-items:center; }
-    .badge { padding: 4px 8px; border-radius: 999px; background:#222; border:1px solid #333; font-size: 0.9rem; }
-    .btn { padding:8px 12px; border-radius:8px; border:1px solid #333; background:#1b1b1b; cursor:pointer; }
-    .btn:hover { background:#232323; }
-    .btn-primary { background:#2a5bd7; border-color:#2a5bd7; }
-    .btn-primary:hover { background:#204db6; }
-    .btn-light { background:#1f1f1f; }
-    .muted { color:#a0a0a0; }
-    a.btn { text-decoration:none; color:#fff; }
-    .switch { display:flex; align-items:center; gap:.5rem; cursor:pointer; }
-    input[type="checkbox"] { transform: scale(1.2); }
-  </style>
 </head>
 <body>
-  <header class="page-header">
-    <button class="btn" onclick="location.href='/'"><i class="fa-solid fa-arrow-left"></i> Retour</button>
-    <h1 style="margin:0">Paramètres</h1>
-    <div class="spacer"></div>
-    <a class="btn" href="/rclone-setup"><i class="fa-solid fa-cloud-arrow-down"></i> Assistant rclone</a>
+  <header class="appbar">
+    <div class="brand">RPi AVP</div>
+    <nav class="nav">
+      <a class="navlink" href="/">Accueil</a>
+      <a class="navlink active" href="/settings">Paramètres</a>
+      <a class="navlink" href="/rclone-setup">Assistant rclone</a>
+    </nav>
+    <div class="flex-spacer"></div>
   </header>
 
   <div class="container">
-
     <section class="card">
-      <h2>Général</h2>
-      <div class="kv">
-        <div>Autoplay au démarrage</div>
-        <div>
-          <span class="badge" id="badge-autoplay">{{ 'activé' if settings.autoplay else 'désactivé' }}</span>
-          <span class="muted">lecture auto si des vidéos sont présentes</span>
-        </div>
-
-        <div>Lecture en boucle (playlist)</div>
-        <div>
-          <span class="badge" id="badge-loop">{{ 'activée' if settings.loop_all else 'désactivée' }}</span>
-          <span class="muted">à la fin, revient au début</span>
-        </div>
-
-        <div>Synchroniser au démarrage</div>
-        <div>
-          <span class="badge" id="badge-syncboot">{{ 'activée' if settings.sync_on_boot else 'désactivée' }}</span>
-          <span class="muted">exécute rclone sync au boot</span>
-        </div>
+      <h2><i class="fa-solid fa-sliders"></i> Général</h2>
+      <div class="section">
+        <div class="row"><label>Autoplay au démarrage</label><span class="badge">{{ 'activé' if settings.autoplay else 'désactivé' }}</span></div>
+        <div class="row"><label>Lecture en boucle (playlist)</label><span class="badge">{{ 'activée' if settings.loop_all else 'désactivée' }}</span></div>
+        <div class="row"><label>Synchroniser au démarrage</label><span class="badge">{{ 'activée' if settings.sync_on_boot else 'désactivée' }}</span></div>
+        <p class="muted">Ces options sont en lecture seule pour l’instant (on peut ajouter des toggles plus tard).</p>
       </div>
-      <p class="muted" style="margin-top:8px">
-        (Ces options sont pour l’instant en lecture seule. On pourra ajouter des boutons + endpoints si tu veux les modifier depuis l’UI.)
-      </p>
     </section>
 
     <section class="card">
-      <h2>Aperçu HLS</h2>
+      <h2><i class="fa-solid fa-signal-stream"></i> Aperçu HLS</h2>
       <div class="row">
-        <label class="switch">
-          <input type="checkbox" id="preview-toggle">
-          <span>Activer l’aperçu HLS dans le navigateur</span>
+        <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+          <input type="checkbox" id="preview-toggle"> <span>Activer l’aperçu HLS</span>
         </label>
         <span id="preview-status" class="badge">—</span>
       </div>
-      <p class="muted">Quand activé, la sortie VLC est dupliquée en HLS (segments .ts + index .m3u8), consultable dans l’onglet Accueil.</p>
-    </section>
-
-    <section class="card">
-      <h2>Actions</h2>
+      <p class="muted">Duplique la sortie VLC vers un flux HLS lisible dans l’Accueil.</p>
       <div class="row">
         <button id="btn-refresh" class="btn btn-light"><i class="fa-solid fa-rotate"></i> Rescanner les vidéos</button>
-        <a class="btn btn-primary" href="/rclone-setup"><i class="fa-solid fa-cloud-arrow-down"></i> Ouvrir l’assistant rclone</a>
       </div>
     </section>
 
     {% block content %}{% endblock %}
-
   </div>
 
   <script>
-    // --- Helpers API ---
-    async function jget(url) {
-      const r = await fetch(url, {cache:"no-store"});
-      if (!r.ok) throw new Error(url + " -> " + r.status);
-      return r.json();
+    async function jget(u){const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(u+" -> "+r.status); return r.json();}
+    async function jpost(u,b){const r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:b?JSON.stringify(b):"{}"}); if(!r.ok) throw new Error(u+" -> "+r.status); return r.json();}
+    const tgl = document.getElementById('preview-toggle');
+    const st  = document.getElementById('preview-status');
+
+    async function loadPrev(){
+      try{ const d=await jget('/api/preview/status'); const e=!!(d.preview&&d.preview.enabled);
+        tgl.checked=e; st.textContent=e?'activé':'désactivé'; }
+      catch{ st.textContent='erreur'; }
     }
-    async function jpost(url, body) {
-      const r = await fetch(url, {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: body ? JSON.stringify(body) : "{}"
-      });
-      if (!r.ok) throw new Error(url + " -> " + r.status);
-      return r.json();
-    }
-
-    // --- Aperçu HLS toggle ---
-    const elPrevToggle = document.getElementById('preview-toggle');
-    const elPrevStatus = document.getElementById('preview-status');
-
-    async function loadPreviewStatus() {
-      try {
-        const data = await jget('/api/preview/status');
-        if (data.ok && data.preview) {
-          const enabled = !!data.preview.enabled;
-          elPrevToggle.checked = enabled;
-          elPrevStatus.textContent = enabled ? 'activé' : 'désactivé';
-        } else {
-          elPrevStatus.textContent = 'inconnu';
-        }
-      } catch (e) {
-        elPrevStatus.textContent = 'erreur';
-      }
-    }
-
-    async function applyPreviewToggle() {
-      try {
-        const enabled = elPrevToggle.checked;
-        const url = enabled ? '/api/preview/enable' : '/api/preview/disable';
-        const rep = await jpost(url);
-        if (rep.ok) {
-          elPrevStatus.textContent = enabled ? 'activé' : 'désactivé';
-        } else {
-          elPrevToggle.checked = !enabled; // revert
-          alert('Erreur: ' + (rep.error || 'inconnue'));
-        }
-      } catch (e) {
-        elPrevToggle.checked = !elPrevToggle.checked;
-        alert('Erreur réseau: ' + e.message);
-      }
-    }
-
-    elPrevToggle.addEventListener('change', applyPreviewToggle);
-    loadPreviewStatus();
-
-    // --- Rescan vidéos ---
-    document.getElementById('btn-refresh').addEventListener('click', async () => {
-      try {
-        await jpost('/control/refresh');
-        alert('Liste des vidéos rescannée.');
-      } catch (e) {
-        alert('Erreur: ' + e.message);
-      }
+    tgl.addEventListener('change', async ()=>{
+      try{ const e=tgl.checked; const url=e?'/api/preview/enable':'/api/preview/disable';
+        const rep=await jpost(url); st.textContent=e?'activé':'désactivé';
+      }catch(e){ tgl.checked=!tgl.checked; alert('Erreur: '+e.message); }
     });
+    document.getElementById('btn-refresh').addEventListener('click', ()=> jpost('/control/refresh').then(()=>alert('OK')).catch(e=>alert(e)));
+    loadPrev();
   </script>
 </body>
 </html>

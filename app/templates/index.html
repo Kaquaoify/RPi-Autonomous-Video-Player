@@ -1,130 +1,110 @@
-<!-- app/templates/index.html -->
 <!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>RPi Autonomous Video Player</title>
-  <!-- Styles globaux -->
+  <title>RPi AVP • Accueil</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 </head>
 <body>
-  <!-- En-tête : logo + accès paramètres -->
-  <header>
-    <div class="logo">RPi AVP</div>
-    <div class="header-buttons">
-      <button id="btn-settings" title="Paramètres" onclick="location.href='/settings'">⚙</button>
-    </div>
+  <header class="appbar">
+    <div class="brand">RPi AVP</div>
+    <nav class="nav">
+      <a class="navlink active" href="/">Accueil</a>
+      <a class="navlink" href="/settings">Paramètres</a>
+      <a class="navlink" href="/rclone-setup">Assistant rclone</a>
+    </nav>
+    <div class="flex-spacer"></div>
   </header>
 
-  <main>
-    <!-- Bloc “lecteur” + contrôles -->
-    <section class="video-container">
-      <!-- Toggle aperçu HLS -->
-      <div class="vlc-controls" style="justify-content:flex-start;width:100%">
-        <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
-          <input type="checkbox" id="preview-toggle">
-          <span>Afficher l’aperçu dans le navigateur (HLS)</span>
-        </label>
-      </div>
+  <div class="container">
+    <div class="grid">
+      <!-- Colonne gauche : Player -->
+      <section class="card">
+        <h2><i class="fa-solid fa-tv"></i> Lecture</h2>
 
-      <!-- Aperçu -->
-      <div id="preview-wrap" class="preview-wrap" style="display:none">
-        <video id="preview-video"
-          muted playsinline disablepictureinpicture disableremoteplayback
-          controlslist="nodownload noplaybackrate nofullscreen" preload="metadata"></video>
-
-        <div class="preview-overlay">
-          <label for="preview-vol">🔊</label>
-          <input type="range" id="preview-vol" min="0" max="100" step="1" value="0">
-        </div>
-      </div>
-
-      <!-- Placeholder HDMI -->
-      <div id="vlc-output">Vidéo (lecture sur HDMI)</div>
-
-      <!-- Toolbar -->
-      <div class="vlc-controls-wrap player-toolbar">
-        <div class="vlc-controls main">
-          <button class="vlc-btn" data-action="prev"  title="Vidéo précédente"><i class="fa-solid fa-backward-step"></i></button>
-          <button class="vlc-btn" id="btn-playpause" data-action="play" title="Lecture"><i class="fa-solid fa-play"></i></button>
-          <button class="vlc-btn" data-action="next"  title="Vidéo suivante"><i class="fa-solid fa-forward-step"></i></button>
+        <!-- Toggle aperçu HLS -->
+        <div class="row" style="margin-top:6px">
+          <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+            <input type="checkbox" id="preview-toggle">
+            <span>Aperçu HLS dans le navigateur</span>
+          </label>
         </div>
 
-        <div class="group-separator"></div>
+        <div id="preview-wrap" class="preview-wrap" style="display:none">
+          <video id="preview-video"
+            muted playsinline disablepictureinpicture disableremoteplayback
+            controlslist="nodownload noplaybackrate nofullscreen" preload="metadata"></video>
 
-        <div class="vlc-controls volume">
-          <button class="vlc-btn" data-action="voldown" title="Baisser le volume"><i class="fa-solid fa-volume-low"></i></button>
-          <button class="vlc-btn" data-action="volup"   title="Augmenter le volume"><i class="fa-solid fa-volume-high"></i></button>
+          <div class="preview-overlay">
+            <label for="preview-vol">🔊</label>
+            <input type="range" id="preview-vol" min="0" max="100" step="1" value="0">
+          </div>
         </div>
 
-        <div class="flex-spacer"></div>
+        <div id="vlc-output">Vidéo (lecture sur HDMI)</div>
 
-        <!-- Panneau d’état -->
-        <div class="status-panel" aria-live="polite">
-          <div class="status-card">
-            <div class="status-row">
-              <div class="status-label">Titre</div>
-              <div class="status-value status-title">
-                <i class="fa-solid fa-film status-film" aria-hidden="true"></i>
-                <div class="title-scroller">
-                  <span id="s-title" class="title-text" title="—">—</span>
+        <div class="player-toolbar">
+          <div class="vlc-controls">
+            <button class="vlc-btn" data-action="prev"  title="Vidéo précédente"><i class="fa-solid fa-backward-step"></i></button>
+            <button class="vlc-btn" id="btn-playpause" data-action="play" title="Lecture"><i class="fa-solid fa-play"></i></button>
+            <button class="vlc-btn" data-action="next"  title="Vidéo suivante"><i class="fa-solid fa-forward-step"></i></button>
+          </div>
+          <div class="group-separator"></div>
+          <div class="vlc-controls">
+            <button class="vlc-btn" data-action="voldown" title="Baisser le volume"><i class="fa-solid fa-volume-low"></i></button>
+            <button class="vlc-btn" data-action="volup"   title="Augmenter le volume"><i class="fa-solid fa-volume-high"></i></button>
+          </div>
+          <div class="flex-spacer"></div>
+          <div class="status-panel">
+            <div class="status-card">
+              <div class="status-row">
+                <div class="status-label">Titre</div>
+                <div class="status-value status-title">
+                  <i class="fa-solid fa-film" aria-hidden="true"></i>
+                  <div class="title-scroller"><span id="s-title" class="title-text" title="—">—</span></div>
+                </div>
+              </div>
+              <div class="status-row">
+                <div class="status-label">État</div>
+                <div class="status-value">
+                  <span id="s-state-badge" class="badge"><i id="s-state-icon" class="fa-solid fa-circle-play"></i></span>
+                  <span id="s-state-text">—</span>
+                </div>
+              </div>
+              <div class="status-row">
+                <div class="status-label">Volume</div>
+                <div class="status-value">
+                  <i id="s-vol-icon" class="fa-solid fa-volume-off"></i>
+                  <span id="s-vol">—</span>
                 </div>
               </div>
             </div>
-
-            <div class="status-row">
-              <div class="status-label">État</div>
-              <div class="status-value">
-                <span id="s-state-badge" class="status-badge">
-                  <i id="s-state-icon" class="fa-solid fa-circle-play"></i>
-                </span>
-                <span id="s-state-text">—</span>
-              </div>
-            </div>
-
-            <div class="status-row">
-              <div class="status-label">Volume</div>
-              <div class="status-value">
-                <i id="s-vol-icon" class="fa-solid fa-volume-off"></i>
-                <span id="s-vol">—</span>
-              </div>
-            </div>
           </div>
         </div>
-      </div><!-- /.player-toolbar -->
-    </section>
+      </section>
 
-    <!-- Explorateur : rendu serveur comme avant -->
-    <section class="video-explorer">
-      <h2>Explorateur de vidéos</h2>
-      <div class="video-list" id="video-list">
-        {% for video in videos %}
-          <div class="video-item" data-name="{{ video }}">
-            <div class="thumbnail">
-              <!-- Miniatures .jpg servies par /thumbnails/<nom>.jpg -->
-              <img
-                src="/thumbnails/{{ video }}.jpg"
-                alt="{{ video }}"
-                class="video-thumb">
+      <!-- Colonne droite : Explorer -->
+      <section class="card">
+        <h2><i class="fa-solid fa-clapperboard"></i> Explorateur de vidéos</h2>
+        <div class="video-list" id="video-list">
+          {% for video in videos %}
+            <div class="video-item" data-name="{{ video }}">
+              <div class="thumbnail">
+                <img src="/thumbnails/{{ video }}.jpg" alt="{{ video }}" class="video-thumb" loading="lazy">
+              </div>
+              <div class="video-title"><div class="scrolling-text">{{ video }}</div></div>
             </div>
-            <div class="video-title">
-              <div class="scrolling-text">{{ video }}</div>
-            </div>
-          </div>
-        {% endfor %}
-      </div>
-    </section>
-  </main>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+  </div>
 
-  <!-- Data initiale (utilisée par scripts.js si besoin) -->
+  <!-- Données initiales -->
   <script id="initial-data" type="application/json">{{ initial | tojson }}</script>
-  <script>
-    (function(){try{window.__INITIAL__=JSON.parse(document.getElementById('initial-data').textContent||'{}')}catch(e){window.__INITIAL__={}}})();
-  </script>
-
-  <!-- HLS.js avant ton JS -->
+  <script>(function(){try{window.__INITIAL__=JSON.parse(document.getElementById('initial-data').textContent||'{}')}catch(e){window.__INITIAL__={}}})();</script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
 </body>

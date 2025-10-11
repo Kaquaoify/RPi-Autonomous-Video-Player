@@ -1,278 +1,154 @@
-{% extends "settings.html" %}
-{% block content %}
-<div class="container">
-  <h1>Rclone – Configuration & Synchronisation</h1>
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RPi AVP • Assistant rclone</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+<body>
+  <header class="appbar">
+    <div class="brand">RPi AVP</div>
+    <nav class="nav">
+      <a class="navlink" href="/">Accueil</a>
+      <a class="navlink" href="/settings">Paramètres</a>
+      <a class="navlink active" href="/rclone-setup">Assistant rclone</a>
+    </nav>
+    <div class="flex-spacer"></div>
+  </header>
 
-  <section class="card">
-    <h2>État de rclone</h2>
-    <div id="rcloneVersion" class="muted">Vérification en cours…</div>
-    <button id="btnRefreshVersion" class="btn">Rafraîchir</button>
-  </section>
-
-  <section class="card">
-    <h2>Remote & Dossier</h2>
-    <div class="row">
-      <label for="selectRemote">Remote par défaut</label>
-      <select id="selectRemote"></select>
-      <button id="btnReloadRemotes" class="btn btn-light">Recharger</button>
-    </div>
-
-    <div class="row">
-      <label for="inputFolder">Dossier distant (dans le remote)</label>
-      <input id="inputFolder" type="text" placeholder="ex: VideosRPi" value="{{ remote_folder|e }}">
-      <button id="btnSaveFolder" class="btn">Enregistrer</button>
-    </div>
-
-    <p class="muted" id="folderHint">Remote effectif pour la sync : <code id="remoteSpecPreview"></code></p>
-  </section>
-
-  <section class="card">
-    <h2>Synchronisation</h2>
-    <div class="row">
-      <button id="btnStartSync" class="btn btn-primary">Lancer une synchronisation</button>
-      <span id="syncStatus" class="badge">inconnu</span>
-    </div>
-    <details class="mt">
-      <summary>Journal rclone</summary>
-      <pre id="logBox" class="log-box">—</pre>
+  <div class="container">
+    <section class="card">
+      <h2><i class="fa-solid fa-plug"></i> État de rclone</h2>
       <div class="row">
-        <label for="logLines">Lignes</label>
-        <input id="logLines" type="number" min="50" step="50" value="300" style="width:110px;">
-        <button id="btnReloadLog" class="btn btn-light">Recharger le journal</button>
+        <span id="rcloneVersion" class="badge">—</span>
+        <button id="btnRefreshVersion" class="btn btn-light">Rafraîchir</button>
       </div>
-    </details>
-  </section>
+    </section>
 
-  <section class="card">
-    <h2>Post-sync (optionnel)</h2>
-    <p>Après la synchronisation, vous pouvez rescanner et rafraîchir l’interface.</p>
-    <div class="row">
-      <button id="btnRefreshVideos" class="btn btn-light">Rescanner les vidéos</button>
-    </div>
-  </section>
-</div>
+    <section class="card">
+      <h2><i class="fa-solid fa-cloud"></i> Remote & Dossier</h2>
+      <div class="row">
+        <label for="selectRemote">Remote par défaut</label>
+        <select id="selectRemote"></select>
+        <button id="btnReloadRemotes" class="btn btn-light">Recharger</button>
+      </div>
+      <div class="row">
+        <label for="inputFolder">Dossier distant</label>
+        <input id="inputFolder" type="text" placeholder="ex: VideosRPi" value="{{ remote_folder|e }}">
+        <button id="btnSaveFolder" class="btn btn-primary">Enregistrer</button>
+      </div>
+      <p class="muted">Remote effectif : <code id="remoteSpecPreview"></code></p>
+    </section>
 
-<style>
-  .container { max-width: 880px; margin: 0 auto; }
-  .card { background: #111; border: 1px solid #222; border-radius: 12px; padding: 16px; margin: 16px 0; }
-  .row { display: flex; gap: 12px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
-  .btn { padding: 8px 12px; border-radius: 8px; border: 1px solid #333; background:#1b1b1b; cursor:pointer; }
-  .btn:hover { background:#232323; }
-  .btn-primary { background:#2a5bd7; border-color:#2a5bd7; }
-  .btn-primary:hover { background:#204db6; }
-  .btn-light { background:#1f1f1f; }
-  .badge { padding: 4px 8px; border-radius: 999px; background:#222; border:1px solid #333; font-size: 0.9rem; }
-  .muted { color:#a0a0a0; }
-  .mt { margin-top: 10px; }
-  .log-box { max-height: 320px; overflow:auto; background:#0b0b0b; border:1px solid #222; padding:12px; }
-  label { min-width: 200px; }
-  input[type="text"] { padding: 8px; border-radius: 8px; border:1px solid #333; background:#0f0f0f; color:#fff; min-width: 300px; }
-  select { padding: 8px; border-radius: 8px; border:1px solid #333; background:#0f0f0f; color:#fff; }
-  code { background:#0d0d0d; padding:2px 6px; border-radius:6px; border:1px solid #222; }
-</style>
+    <section class="card">
+      <h2><i class="fa-solid fa-arrows-rotate"></i> Synchronisation</h2>
+      <div class="row">
+        <button id="btnStartSync" class="btn btn-primary">Lancer une synchronisation</button>
+        <span id="syncStatus" class="badge">inconnu</span>
+      </div>
+      <details class="section">
+        <summary>Journal rclone</summary>
+        <pre id="logBox" class="log-box">—</pre>
+        <div class="row">
+          <label for="logLines">Lignes</label>
+          <input id="logLines" type="number" min="50" step="50" value="300" style="width:110px;">
+          <button id="btnReloadLog" class="btn btn-light">Recharger le journal</button>
+        </div>
+      </details>
+      <div class="row">
+        <button id="btnRefreshVideos" class="btn btn-light"><i class="fa-solid fa-rotate"></i> Rescanner les vidéos</button>
+      </div>
+    </section>
+  </div>
 
-<script>
-  // --- Helpers API fetch ---
-  async function jget(url) {
-    const r = await fetch(url, {cache: "no-store"});
-    if (!r.ok) throw new Error("GET " + url + " -> " + r.status);
-    return r.json();
-  }
-  async function jpost(url, body) {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: body ? JSON.stringify(body) : "{}"
-    });
-    if (!r.ok) throw new Error("POST " + url + " -> " + r.status);
-    return r.json();
-  }
+  <script>
+  async function jget(u){const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(u+" -> "+r.status); return r.json();}
+  async function jpost(u,b){const r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:b?JSON.stringify(b):"{}"}); if(!r.ok) throw new Error(u+" -> "+r.status); return r.json();}
 
-  // --- UI elements ---
-  const elVersion  = () => document.getElementById("rcloneVersion");
-  const elRemotes  = () => document.getElementById("selectRemote");
-  const elFolder   = () => document.getElementById("inputFolder");
-  const elSpecPrev = () => document.getElementById("remoteSpecPreview");
-  const elStatus   = () => document.getElementById("syncStatus");
-  const elLogBox   = () => document.getElementById("logBox");
-  const elLogLines = () => document.getElementById("logLines");
+  const elVersion=()=>document.getElementById("rcloneVersion");
+  const elRemotes=()=>document.getElementById("selectRemote");
+  const elFolder =()=>document.getElementById("inputFolder");
+  const elSpec   =()=>document.getElementById("remoteSpecPreview");
+  const elStatus =()=>document.getElementById("syncStatus");
+  const elLog    =()=>document.getElementById("logBox");
+  const elLines  =()=>document.getElementById("logLines");
 
-  // --- State ---
-  let defaultRemote = "{{ default_remote|e }}";
+  let defaultRemote="{{ default_remote|e }}";
 
-  function updateRemoteSpecPreview() {
-    const r = (elRemotes().value || defaultRemote).trim();
-    const f = (elFolder().value || "").trim().replace(/^\/+|\/+$/g, "");
-    const spec = f ? `${r}:${f}` : `${r}:`;
-    elSpecPrev().textContent = spec;
+  function updateSpec(){
+    const r=(elRemotes().value||defaultRemote).trim();
+    const f=(elFolder().value||"").trim().replace(/^\/+|\/+$/g,"");
+    elSpec().textContent = f ? `${r}:${f}` : `${r}:`;
   }
 
-  // --- Loaders ---
-  async function loadVersion() {
-    try {
-      const data = await jget("/api/rclone/version");
-      if (data.available === "yes") {
-        elVersion().textContent = data.version || "rclone présent";
-      } else if (data.available === "no") {
-        elVersion().textContent = "rclone introuvable (installez rclone)";
-      } else {
-        elVersion().textContent = "Erreur: " + (data.version || "inconnue");
-      }
-    } catch (e) {
-      elVersion().textContent = "Erreur: " + e.message;
-    }
+  async function loadVersion(){
+    try{ const d=await jget("/api/rclone/version");
+      if(d.available==="yes") elVersion().textContent=d.version||"rclone présent";
+      else if(d.available==="no") elVersion().textContent="rclone introuvable";
+      else elVersion().textContent="Erreur";
+    }catch(e){ elVersion().textContent="Erreur: "+e.message; }
+  }
+  async function loadRemotes(){
+    try{ const d=await jget("/api/rclone/remotes");
+      elRemotes().innerHTML=""; (d.items||[]).forEach(n=>{ const o=document.createElement("option"); o.value=n; o.textContent=n; elRemotes().appendChild(o); });
+      defaultRemote=d.default||defaultRemote;
+      if((d.items||[]).includes(defaultRemote)) elRemotes().value=defaultRemote;
+      updateSpec();
+    }catch(e){ elRemotes().innerHTML="<option>(erreur)</option>"; }
+  }
+  async function loadFolder(){
+    try{ const d=await jget("/api/rclone/remote_folder"); if(d.ok) elFolder().value=d.remote_folder||"{{ remote_folder|e }}"; updateSpec(); }
+    catch{ updateSpec(); }
+  }
+  async function saveFolder(){
+    try{ const d=await jpost("/api/rclone/remote_folder", { remote_folder: elFolder().value.trim() });
+      alert(d.ok?"Dossier mis à jour":"Erreur: "+(d.error||"inconnue"));
+      updateSpec();
+    }catch(e){ alert("Erreur réseau: "+e.message); }
   }
 
-  async function loadRemotes() {
-    try {
-      const data = await jget("/api/rclone/remotes");
-      const items = data.items || [];
-      elRemotes().innerHTML = "";
-      for (const name of items) {
-        const opt = document.createElement("option");
-        opt.value = name;
-        opt.textContent = name;
-        elRemotes().appendChild(opt);
-      }
-      const def = data.default || defaultRemote;
-      defaultRemote = def;
-      if (items.includes(def)) {
-        elRemotes().value = def;
-      } else if (items.length) {
-        elRemotes().value = items[0];
-      }
-      updateRemoteSpecPreview();
-    } catch (e) {
-      elRemotes().innerHTML = "<option>(erreur)</option>";
-    }
+  let poll=null;
+  async function startSync(){
+    try{
+      const rep=await jpost("/api/rclone/sync", { remote: elRemotes().value||defaultRemote, folder: elFolder().value.trim() });
+      if(rep.started){ elStatus().textContent="en cours…"; elStatus().style.background="#393b14"; pollStatus(); }
+      else { elStatus().textContent="déjà en cours"; elStatus().style.background="#393b14"; }
+    }catch(e){ alert("Erreur: "+e.message); }
   }
-
-  async function loadRemoteFolder() {
-    try {
-      const data = await jget("/api/rclone/remote_folder");
-      if (data.ok) elFolder().value = data.remote_folder || "{{ remote_folder|e }}";
-      updateRemoteSpecPreview();
-    } catch (e) {
-      // garde la valeur du template si erreur
-      updateRemoteSpecPreview();
-    }
-  }
-
-  // --- Actions ---
-  async function saveFolder() {
-    const folder = elFolder().value.trim();
-    try {
-      const data = await jpost("/api/rclone/remote_folder", { remote_folder: folder });
-      if (data.ok) {
-        toast("Dossier mis à jour");
-        updateRemoteSpecPreview();
-      } else {
-        toast("Erreur: " + (data.error || "inconnue"), true);
-      }
-    } catch (e) {
-      toast("Erreur réseau: " + e.message, true);
-    }
-  }
-
-  let pollTimer = null;
-
-  async function startSync() {
-    // Lance la sync avec les valeurs UI
-    const remote = elRemotes().value || defaultRemote;
-    const folder = elFolder().value.trim();
-    try {
-      const rep = await jpost("/api/rclone/sync", { remote, folder });
-      if (rep.started) {
-        elStatus().textContent = "en cours…";
-        elStatus().style.background = "#3b3b14";
-        pollSync();
-      } else {
-        elStatus().textContent = "déjà en cours";
-        elStatus().style.background = "#3b3b14";
-        toast("Une synchronisation est déjà en cours.");
-      }
-    } catch (e) {
-      toast("Erreur: " + e.message, true);
-    }
-  }
-
-  async function pollSync() {
-    clearInterval(pollTimer);
-    pollTimer = setInterval(async () => {
-      try {
-        const st = await jget("/api/rclone/sync_status");
-        if (st.running) {
-          elStatus().textContent = "en cours…";
-          elStatus().style.background = "#3b3b14";
-          await reloadLog(false);
-        } else {
-          clearInterval(pollTimer);
-          elStatus().textContent = "terminée";
-          elStatus().style.background = "#143b14";
-          await reloadLog(true);
-          toast("Synchronisation terminée. Pensez à rescanner les vidéos.");
-        }
-      } catch (e) {
-        clearInterval(pollTimer);
-        elStatus().textContent = "erreur";
-        elStatus().style.background = "#3b1414";
-        toast("Erreur de statut sync: " + e.message, true);
-      }
+  async function pollStatus(){
+    clearInterval(poll);
+    poll=setInterval(async()=>{
+      try{
+        const st=await jget("/api/rclone/sync_status");
+        if(st.running){ elStatus().textContent="en cours…"; await reloadLog(false); }
+        else { clearInterval(poll); elStatus().textContent="terminée"; elStatus().style.background="#143b14"; await reloadLog(true); }
+      }catch(e){ clearInterval(poll); elStatus().textContent="erreur"; elStatus().style.background="#3b1414"; }
     }, 2000);
   }
-
-  async function reloadLog(scrollBottom = false) {
-    try {
-      const n = Math.max(50, parseInt(elLogLines().value || "300", 10));
-      const rep = await jget("/api/rclone/log?lines=" + n);
-      elLogBox().textContent = rep.log || "—";
-      if (scrollBottom) elLogBox().scrollTop = elLogBox().scrollHeight;
-    } catch (e) {
-      elLogBox().textContent = "(erreur de lecture du journal)";
-    }
+  async function reloadLog(scrollBottom){
+    try{
+      const n=Math.max(50, parseInt(elLines().value||"300",10));
+      const rep=await jget("/api/rclone/log?lines="+n);
+      elLog().textContent=rep.log||"—";
+      if(scrollBottom) elLog().scrollTop=elLog().scrollHeight;
+    }catch{ elLog().textContent="(erreur de lecture du journal)"; }
+  }
+  async function refreshVideos(){
+    try{ await jpost("/control/refresh"); alert("Liste rescannée."); }catch(e){ alert("Erreur: "+e.message); }
   }
 
-  async function refreshVideos() {
-    try {
-      await jpost("/control/refresh");
-      toast("Liste des vidéos rescannée.");
-    } catch (e) {
-      toast("Erreur refresh: " + e.message, true);
-    }
-  }
-
-  // --- Tiny toast ---
-  function toast(msg, isErr=false) {
-    const el = document.createElement("div");
-    el.textContent = msg;
-    el.style.position = "fixed";
-    el.style.right = "16px";
-    el.style.bottom = "16px";
-    el.style.padding = "10px 14px";
-    el.style.borderRadius = "10px";
-    el.style.background = isErr ? "#501c1c" : "#1c2b50";
-    el.style.border = "1px solid #333";
-    el.style.zIndex = 9999;
-    document.body.appendChild(el);
-    setTimeout(() => el.remove(), 3000);
-  }
-
-  // --- Wiring ---
   document.getElementById("btnRefreshVersion").addEventListener("click", loadVersion);
   document.getElementById("btnReloadRemotes").addEventListener("click", loadRemotes);
   document.getElementById("btnSaveFolder").addEventListener("click", saveFolder);
   document.getElementById("btnStartSync").addEventListener("click", startSync);
-  document.getElementById("btnReloadLog").addEventListener("click", () => reloadLog(true));
+  document.getElementById("btnReloadLog").addEventListener("click", ()=>reloadLog(true));
   document.getElementById("btnRefreshVideos").addEventListener("click", refreshVideos);
-  document.getElementById("selectRemote").addEventListener("change", updateRemoteSpecPreview);
-  document.getElementById("inputFolder").addEventListener("input", updateRemoteSpecPreview);
+  document.getElementById("selectRemote").addEventListener("change", updateSpec);
+  document.getElementById("inputFolder").addEventListener("input", updateSpec);
 
-  // --- Boot ---
-  (async function init() {
-    await loadVersion();
-    await loadRemotes();
-    await loadRemoteFolder();
-    await reloadLog(false);
-  })();
-</script>
-{% endblock %}
+  (async function init(){ await loadVersion(); await loadRemotes(); await loadFolder(); await reloadLog(false); })();
+  </script>
+</body>
+</html>
