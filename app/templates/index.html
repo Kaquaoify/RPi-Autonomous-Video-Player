@@ -5,13 +5,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>RPi Autonomous Video Player</title>
-
-  <!-- Styles -->
+  <!-- Styles globaux -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 </head>
 <body>
-  <!-- En-tête -->
+  <!-- En-tête : logo + accès paramètres -->
   <header>
     <div class="logo">RPi AVP</div>
     <div class="header-buttons">
@@ -20,8 +19,9 @@
   </header>
 
   <main>
-    <!-- Bloc lecteur / aperçu -->
+    <!-- Bloc “lecteur” + contrôles -->
     <section class="video-container">
+      <!-- Toggle aperçu HLS -->
       <div class="vlc-controls" style="justify-content:flex-start;width:100%">
         <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
           <input type="checkbox" id="preview-toggle">
@@ -29,39 +29,34 @@
         </label>
       </div>
 
+      <!-- Aperçu -->
       <div id="preview-wrap" class="preview-wrap" style="display:none">
         <video id="preview-video"
-          muted
-          playsinline
-          disablepictureinpicture
-          controlslist="nodownload noplaybackrate nofullscreen"
-          disableremoteplayback
-          preload="metadata"></video>
+          muted playsinline disablepictureinpicture disableremoteplayback
+          controlslist="nodownload noplaybackrate nofullscreen" preload="metadata"></video>
 
-        <!-- Overlay volume local (n’affecte pas VLC) -->
         <div class="preview-overlay">
           <label for="preview-vol">🔊</label>
           <input type="range" id="preview-vol" min="0" max="100" step="1" value="0">
         </div>
       </div>
 
-      <!-- Placeholder quand l’aperçu est désactivé -->
+      <!-- Placeholder HDMI -->
       <div id="vlc-output">Vidéo (lecture sur HDMI)</div>
 
+      <!-- Toolbar -->
       <div class="vlc-controls-wrap player-toolbar">
-        <!-- Lecture / navigation -->
         <div class="vlc-controls main">
-          <button class="vlc-btn" data-action="prev" title="Vidéo précédente"><i class="fa-solid fa-backward-step"></i></button>
+          <button class="vlc-btn" data-action="prev"  title="Vidéo précédente"><i class="fa-solid fa-backward-step"></i></button>
           <button class="vlc-btn" id="btn-playpause" data-action="play" title="Lecture"><i class="fa-solid fa-play"></i></button>
-          <button class="vlc-btn" data-action="next" title="Vidéo suivante"><i class="fa-solid fa-forward-step"></i></button>
+          <button class="vlc-btn" data-action="next"  title="Vidéo suivante"><i class="fa-solid fa-forward-step"></i></button>
         </div>
 
         <div class="group-separator"></div>
 
-        <!-- Volume -->
         <div class="vlc-controls volume">
           <button class="vlc-btn" data-action="voldown" title="Baisser le volume"><i class="fa-solid fa-volume-low"></i></button>
-          <button class="vlc-btn" data-action="volup" title="Augmenter le volume"><i class="fa-solid fa-volume-high"></i></button>
+          <button class="vlc-btn" data-action="volup"   title="Augmenter le volume"><i class="fa-solid fa-volume-high"></i></button>
         </div>
 
         <div class="flex-spacer"></div>
@@ -101,82 +96,36 @@
       </div><!-- /.player-toolbar -->
     </section>
 
-    <!-- Explorateur -->
+    <!-- Explorateur : rendu serveur comme avant -->
     <section class="video-explorer">
       <h2>Explorateur de vidéos</h2>
-
-      <!-- Conteneur vide : rempli par scripts.js via /control/videos -->
-      <div class="video-list" id="video-list"></div>
+      <div class="video-list" id="video-list">
+        {% for video in videos %}
+          <div class="video-item" data-name="{{ video }}">
+            <div class="thumbnail">
+              <!-- Miniatures .jpg servies par /thumbnails/<nom>.jpg -->
+              <img
+                src="/thumbnails/{{ video }}.jpg"
+                alt="{{ video }}"
+                class="video-thumb">
+            </div>
+            <div class="video-title">
+              <div class="scrolling-text">{{ video }}</div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
     </section>
   </main>
 
-<!-- Données initiales rendues par Flask (valide côté éditeur) -->
-<script id="initial-data" type="application/json">
-{{ initial | tojson }}
-</script>
-
-<script>
-  // Parse propre (évite l’erreur du validateur JS de VS Code)
-  (function () {
-    var el = document.getElementById('initial-data');
-    try {
-      window.__INITIAL__ = JSON.parse(el.textContent || '{}');
-    } catch (e) {
-      console.warn('Invalid initial JSON', e);
-      window.__INITIAL__ = {};
-    }
-  })();
-
-  // Helper pour construire l’URL d’une miniature .jpg
-  window.thumbUrl = function (fileName) {
-    return "/thumbnails/" + fileName + ".jpg";
-  };
-</script>
-
-
-  <!-- Charger HLS.js AVANT ton JS -->
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <!-- Ton JS (déjà dans static/js) -->
-  <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
-
-  <!-- (Optionnel) petit bootstrap si ton scripts.js n’injecte pas encore la liste -->
+  <!-- Data initiale (utilisée par scripts.js si besoin) -->
+  <script id="initial-data" type="application/json">{{ initial | tojson }}</script>
   <script>
-    (async function bootstrapListIfEmpty() {
-      const list = document.getElementById('video-list');
-      if (list.children.length) return;
-      try {
-        const r = await fetch('/control/videos', {cache:'no-store'});
-        const j = await r.json();
-        if (!j.ok) return;
-        const items = j.items || [];
-        for (const it of items) {
-          const div = document.createElement('div');
-          div.className = 'video-item';
-          div.dataset.name = it.name;
-
-          const thumb = document.createElement('div');
-          thumb.className = 'thumbnail';
-          const img = document.createElement('img');
-          img.className = 'video-thumb';
-          img.alt = it.name;
-          img.src = window.thumbUrl(it.name);
-          thumb.appendChild(img);
-
-          const title = document.createElement('div');
-          title.className = 'video-title';
-          const scroll = document.createElement('div');
-          scroll.className = 'scrolling-text';
-          scroll.textContent = it.name;
-          title.appendChild(scroll);
-
-          div.appendChild(thumb);
-          div.appendChild(title);
-          list.appendChild(div);
-        }
-      } catch(e) {
-        console.warn('bootstrap video list failed', e);
-      }
-    })();
+    (function(){try{window.__INITIAL__=JSON.parse(document.getElementById('initial-data').textContent||'{}')}catch(e){window.__INITIAL__={}}})();
   </script>
+
+  <!-- HLS.js avant ton JS -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
 </body>
 </html>

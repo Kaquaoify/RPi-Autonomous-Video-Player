@@ -36,7 +36,8 @@ def _ensure_thumbnails_background() -> None:
 def index():
     """
     Accueil: mini-explorateur + contrôles.
-    On pousse dans le template un petit snapshot initial utile à l’UI.
+    En plus de 'initial', on passe 'videos' (liste des noms) pour
+    permettre le rendu côté serveur comme dans la 0.8.0.
     """
     videos.refresh_videos(force=False)
     _ensure_thumbnails_background()
@@ -45,12 +46,16 @@ def index():
     settings = load_settings()            # {preview_enabled, autoplay, ...}
     hls = preview_status()                # {enabled, index_url, ...}
 
-    ctx: Dict[str, Any] = {
+    # Liste des vidéos (noms) pour compat legacy
+    names = [v["name"] for v in videos.list_videos()]
+
+    ctx = {
         "initial": {
             "videos": snap,
             "settings": settings,
             "hls": hls,
-        }
+        },
+        "videos": names,   # ← AJOUT
     }
     return render_template("index.html", **ctx)
 

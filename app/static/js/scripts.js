@@ -133,12 +133,23 @@ async function loadVideoList() {
 }
 
 // --- Controls ---
-async function playVideoByName(name) {
+async function playVideo(videoName) {
+  log("[play-video] ->", videoName);
   try {
-    await jpost("/control/play-video", { name });
-    startPolling();
-  } catch (e) {
-    alert("Lecture impossible: " + e.message);
+    const res = await fetchWithTimeout("/control/play-video", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: videoName }), // <-- clé attendue par la nouvelle API
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error("[play-video] HTTP", res.status, body);
+      return;
+    }
+    const data = await parseJsonSafe(res);
+    log("[play-video][ok]", data);
+  } catch (err) {
+    console.error("[play-video][error]", err);
   }
 }
 
