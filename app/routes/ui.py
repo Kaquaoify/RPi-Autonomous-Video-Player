@@ -72,5 +72,6 @@ def rclone_setup_page():
     ctx = {
         "default_remote": get_default_remote(),
         "remote_folder": get_remote_folder_setting(),
+        "settings": load_settings(),
     }
     return render_template("rclone_setup.html", **ctx)
