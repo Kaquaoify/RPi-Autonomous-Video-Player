@@ -2,13 +2,15 @@
 set -euo pipefail
 
 # install.sh (interactif)
-# Installe l'application RPi-Autonomous-Video-Player et ses dépendances sur un RPi Ubuntu.
+# Installe l'application RPi-Autonomous-Video-Player et ses dÃ©pendances sur un RPi Ubuntu.
 
 APP_NAME="RPi-Autonomous-Video-Player"
 GIT_USER="kaquaoify"
 REPO_URL="https://github.com/${GIT_USER}/${APP_NAME}.git"
 
-USER_HOME="/home/$USER"
+USER_NAME="${SUDO_USER:-$(id -un)}"
+USER_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
+[ -z "$USER_HOME" ] && USER_HOME="/home/$USER_NAME"
 INSTALL_DIR="${USER_HOME}/${APP_NAME}"
 VIDEO_DIR="${USER_HOME}/Videos/${APP_NAME}"
 THUMB_DIR="${VIDEO_DIR}/thumbnails"
@@ -24,83 +26,83 @@ confirm() {
         case "$yn" in
             [Yy]* ) break ;;
             [Nn]* ) echo "Annulation par l'utilisateur."; exit 1 ;;
-            * ) echo "Merci de répondre par y (oui) ou n (non)." ;;
+            * ) echo "Merci de rÃ©pondre par y (oui) ou n (non)." ;;
         esac
     done
 }
 
 echo "=== Installation de ${APP_NAME} ==="
-echo "Utilisateur : $USER"
-echo "Répertoire d'installation : ${INSTALL_DIR}"
+echo "Utilisateur cible : $USER_NAME"
+echo "RÃ©pertoire d'installation : ${INSTALL_DIR}"
 echo
 
-# 1) Mise à jour système
-confirm "1) Mettre à jour le système (apt update && apt upgrade)"
+# 1) Mise Ã  jour systÃ¨me
+confirm "1) Mettre Ã  jour le systÃ¨me (apt update && apt upgrade)"
 sudo apt update && sudo apt upgrade -y
 sudo apt autoremove -y
 
-# 2) Installer paquets système essentiels (+ fbset pour con2fbmap)
-confirm "2) Installer paquets système essentiels (python3, venv, pip, vlc, vlc-plugin-base, ffmpeg, git, curl, unzip, rclone, fbset)"
+# 2) Installer paquets systÃ¨me essentiels (+ fbset pour con2fbmap)
+confirm "2) Installer paquets systÃ¨me essentiels (python3, venv, pip, vlc, vlc-plugin-base, ffmpeg, git, curl, unzip, rclone, fbset)"
 sudo apt install -y python3 python3-venv python3-pip vlc vlc-plugin-base ffmpeg git curl unzip rclone fbset
 
-# 3) Cloner ou mettre à jour le dépôt
+# 3) Cloner ou mettre Ã  jour le dÃ©pÃ´t
 if [ -d "${INSTALL_DIR}/.git" ]; then
-    confirm "3) Mettre à jour le dépôt (${INSTALL_DIR}) depuis GitHub"
+    confirm "3) Mettre Ã  jour le dÃ©pÃ´t (${INSTALL_DIR}) depuis GitHub"
     cd "${INSTALL_DIR}"
     git fetch --all --prune
     git reset --hard origin/main || true
     git pull --rebase origin main || true
 else
-    confirm "3) Cloner le dépôt depuis ${REPO_URL} vers ${INSTALL_DIR}"
+    confirm "3) Cloner le dÃ©pÃ´t depuis ${REPO_URL} vers ${INSTALL_DIR}"
     git clone "${REPO_URL}" "${INSTALL_DIR}"
 fi
 
-# 4) Créer dossiers vidéos / miniatures
-confirm "4) Créer le dossier vidéos et thumbnails (${VIDEO_DIR})"
+# 4) CrÃ©er dossiers vidÃ©os / miniatures
+confirm "4) CrÃ©er le dossier vidÃ©os et thumbnails (${VIDEO_DIR})"
 mkdir -p "${VIDEO_DIR}"
 mkdir -p "${THUMB_DIR}"
-sudo chown -R "${USER}:${USER}" "${VIDEO_DIR}" "${THUMB_DIR}" "${INSTALL_DIR}"
+sudo chown -R "${USER_NAME}:${USER_NAME}" "${VIDEO_DIR}" "${THUMB_DIR}" "${INSTALL_DIR}"
 
-# 5) Créer virtualenv Python
-confirm "5) Créer l'environnement virtuel Python (venv) dans ${VENV_DIR}"
+# 5) CrÃ©er virtualenv Python
+confirm "5) CrÃ©er l'environnement virtuel Python (venv) dans ${VENV_DIR}"
 ${PYTHON_BIN} -m venv "${VENV_DIR}"
 
-# 6) Installer dépendances Python dans le venv
-confirm "6) Installer les dépendances Python depuis ${INSTALL_DIR}/requirements.txt (si présent)"
+# 6) Installer dÃ©pendances Python dans le venv
+confirm "6) Installer les dÃ©pendances Python depuis ${INSTALL_DIR}/requirements.txt (si prÃ©sent)"
 source "${VENV_DIR}/bin/activate"
 pip install --upgrade pip setuptools wheel
 if [ -f "${INSTALL_DIR}/requirements.txt" ]; then
     pip install -r "${INSTALL_DIR}/requirements.txt"
 else
-    echo "Aucun requirements.txt trouvé dans ${INSTALL_DIR}. Installation minimale : flask, python-vlc, pillow"
+    echo "Aucun requirements.txt trouvÃ© dans ${INSTALL_DIR}. Installation minimale : flask, python-vlc, pillow"
     pip install flask python-vlc pillow
 fi
 deactivate
 
-# 7) Vérification ffmpeg / vlc / python-vlc
-echo "7) Vérifications rapides :"
+# 7) VÃ©rification ffmpeg / vlc / python-vlc
+echo "7) VÃ©rifications rapides :"
 if command -v ffmpeg >/dev/null 2>&1; then
     echo " - ffmpeg OK ($(ffmpeg -version | head -n1))"
 else
-    echo " - ffmpeg NON trouvé"
+    echo " - ffmpeg NON trouvÃ©"
 fi
 if command -v vlc >/dev/null 2>&1; then
     echo " - vlc OK ($(vlc --version 2>/dev/null | head -n1 || true))"
 else
-    echo " - vlc NON trouvé"
+    echo " - vlc NON trouvÃ©"
 fi
 
-# 8) Ajouter l'utilisateur aux groupes nécessaires pour l'accès vidéo direct
-confirm "8) Ajouter l'utilisateur '${USER}' aux groupes video, render, input, audio (accès /dev/fb0 et DRM)"
-sudo usermod -aG video,render,input,audio "${USER}"
-echo "   -> Les nouveaux groupes seront effectifs pour le service systemd dès son prochain démarrage."
+# 8) Ajouter l'utilisateur aux groupes nÃ©cessaires pour l'accÃ¨s vidÃ©o direct
+confirm "8) Ajouter l'utilisateur '' aux groupes video, render, input, audio (accÃ¨s /dev/fb0 et DRM)"
+sudo usermod -aG video,render,input,audio "${USER_NAME}"
+echo "   -> Les nouveaux groupes seront effectifs pour le service systemd dÃ¨s son prochain dÃ©marrage."
 
-# 9) Désactiver la console login sur TTY1 pour libérer l'affichage
-confirm "9) Désactiver getty@tty1 (libère la console HDMI pour la sortie vidéo)"
+# 9) DÃ©sactiver la console login sur TTY1 pour libÃ©rer l'affichage
+confirm "9) DÃ©sactiver getty@tty1 (libÃ¨re la console HDMI pour la sortie vidÃ©o)"
 sudo systemctl disable --now getty@tty1.service || true
 
-# 10) Créer/mettre à jour le service systemd (utilise python du venv) + TTY HDMI
-confirm "10) Créer/mettre à jour le service systemd pour lancer l'application au démarrage (prise TTY1 + framebuffer)"
+# 10) CrÃ©er/mettre Ã  jour le service systemd (utilise python du venv) + TTY HDMI
+confirm "10) CrÃ©er/mettre Ã  jour le service systemd pour lancer l'application au dÃ©marrage (prise TTY1 + framebuffer)"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}"
 
 sudo tee "${SERVICE_FILE}" > /dev/null <<EOF
@@ -111,15 +113,16 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=${USER}
+User=${USER_NAME}
 WorkingDirectory=${INSTALL_DIR}
 
 # Environnement (venv + runtime)
 Environment=PYTHONUNBUFFERED=1
 Environment=VIRTUAL_ENV=${VENV_DIR}
 Environment=PATH=${VENV_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=HOME=${USER_HOME}
 
-# Fournit un /run dédié et propre pour l'app
+# Fournit un /run dÃ©diÃ© et propre pour l'app
 RuntimeDirectory=rpi-avp
 RuntimeDirectoryMode=0700
 Environment=XDG_RUNTIME_DIR=/run/rpi-avp
@@ -136,7 +139,7 @@ TTYVTDisallocate=yes
 ExecStartPre=/bin/chvt 1
 ExecStartPre=/bin/sh -c '/usr/bin/con2fbmap 1 0 || /usr/sbin/con2fbmap 1 0 || true'
 
-# Lancement de l'app (libVLC choisira --vout=fb côté headless via le code Python)
+# Lancement de l'app (libVLC choisira --vout=fb cÃ´tÃ© headless via le code Python)
 ExecStart=${VENV_DIR}/bin/python ${INSTALL_DIR}/run.py
 
 Restart=always
@@ -151,13 +154,13 @@ sudo systemctl enable "${SERVICE_NAME}"
 sudo systemctl restart "${SERVICE_NAME}" || true
 
 echo
-echo "=== Installation terminée ==="
+echo "=== Installation terminÃ©e ==="
 echo "Service systemd: ${SERVICE_NAME}"
 echo "Pour voir le statut : sudo systemctl status ${SERVICE_NAME}"
 echo "Logs (journal) : sudo journalctl -u ${SERVICE_NAME} -f"
 echo "Interface accessible sur : http://$(hostname -I | awk '{print $1}'):5000"
 echo
 echo "Note:"
-echo "- Les droits groupes (video/render/input/audio) sont pris en compte par le service lors du (re)démarrage."
+echo "- Les droits groupes (video/render/input/audio) sont pris en compte par le service lors du (re)dÃ©marrage."
 echo "- Si jamais l'affichage HDMI ne sort pas tout de suite, refaites simplement :"
 echo "    sudo systemctl restart ${SERVICE_NAME}"
